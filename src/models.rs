@@ -155,6 +155,11 @@ pub struct Event {
     pub category: String,
     /// Minutes before start, -1 = none
     pub reminder: i64,
+    /// Series pattern, see `recur::Recurrence` (empty = single appointment)
+    pub recurrence: String,
+    /// Meeting response: "" / organizer / accepted / tentativelyAccepted / declined / notResponded
+    pub response: String,
+    pub organizer: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

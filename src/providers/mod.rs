@@ -386,8 +386,38 @@ fn kind_of(state: &AppState, account_id: i64) -> Result<AccountKind> {
 pub async fn save_event(state: &AppState, mut e: Event) -> Result<i64> {
     if kind_of(state, e.account_id)? == AccountKind::Graph {
         e.remote_id = graph::save_event(state, &e).await?;
+        if !e.recurrence.is_empty() {
+            // The server expands the series; fetch its occurrences instead of the master.
+            let id = db::save_event(&state.db(), &e)?;
+            sync(state, e.account_id).await?;
+            return Ok(id);
+        }
     }
     db::save_event(&state.db(), &e)
+}
+
+/// Answer a meeting request (Microsoft 365): "accept", "tentativelyAccept" or "decline".
+pub async fn respond_event(state: &AppState, id: i64, answer: &str) -> Result<()> {
+    let mut e = db::get_event(&state.db(), id)?.ok_or_else(|| anyhow!("Termin nicht gefunden"))?;
+    if kind_of(state, e.account_id)? != AccountKind::Graph || e.remote_id.is_empty() {
+        bail!("Besprechungsanfragen können nur in Microsoft 365-Kalendern beantwortet werden");
+    }
+    graph::respond_event(state, e.account_id, &e.remote_id, answer).await?;
+    if answer == "decline" {
+        // Outlook removes declined meetings from the calendar.
+        return db::delete_event(&state.db(), id);
+    }
+    e.response = if answer == "accept" {
+        "accepted".into()
+    } else {
+        "tentativelyAccepted".into()
+    };
+    e.show_as = if answer == "accept" {
+        "busy".into()
+    } else {
+        "tentative".into()
+    };
+    db::save_event(&state.db(), &e).map(|_| ())
 }
 
 pub async fn delete_event(state: &AppState, id: i64) -> Result<()> {

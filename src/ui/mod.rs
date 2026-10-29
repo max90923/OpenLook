@@ -89,6 +89,8 @@ pub enum Done {
         user_code: String,
         uri: String,
     },
+    /// Current automatic-reply settings of an account were loaded.
+    AutoReply(i64, providers::graph::AutoReply),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -185,6 +187,7 @@ pub enum Win {
     Options(backstage::OptionsWin),
     AddAccount(backstage::AddAccountWin),
     Rules(rules_ui::RulesWin),
+    AutoReply(backstage::AutoReplyWin),
 }
 
 pub struct WinEntry {
@@ -292,6 +295,10 @@ impl App {
         };
         app.apply_style();
         app.start_background_sync();
+        // Move account secrets of older installations into the OS credential store.
+        let st = app.st.clone();
+        app.rt
+            .spawn_blocking(move || crate::secrets::secure_all(&st));
         app
     }
 
@@ -308,7 +315,7 @@ impl App {
             s.text_styles
                 .insert(TextStyle::Button, FontId::new(13.0, Proportional));
             s.text_styles
-                .insert(TextStyle::Heading, FontId::new(20.0, Proportional));
+                .insert(TextStyle::Heading, FontId::new(15.0, Proportional));
             s.spacing.item_spacing = egui::vec2(6.0, 5.0);
             s.spacing.button_padding = egui::vec2(8.0, 3.0);
             s.spacing.interact_size.y = 22.0;
@@ -397,6 +404,15 @@ impl App {
                 }
                 Done::DeviceCode { user_code, uri } => {
                     self.device_code = (!user_code.is_empty()).then_some((user_code, uri));
+                }
+                Done::AutoReply(account, data) => {
+                    for w in &mut self.windows {
+                        if let Win::AutoReply(a) = &mut w.win {
+                            if a.account_id == account {
+                                a.loaded(data.clone());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -981,6 +997,7 @@ impl App {
                 Win::Options(o) => self.options_window(ctx, vid, o),
                 Win::AddAccount(a) => self.add_account_window(ctx, vid, a),
                 Win::Rules(r) => self.rules_window(ctx, vid, r),
+                Win::AutoReply(a) => self.auto_reply_window(ctx, vid, a),
             };
             if close {
                 closed.push(w.id);

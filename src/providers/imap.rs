@@ -17,7 +17,7 @@ const WINDOW: u32 = 100;
 type Session = async_imap::Session<TlsStream<TcpStream>>;
 
 fn config(state: &AppState, account_id: i64) -> Result<ImapConfig> {
-    let raw = db::account_config(&state.db(), account_id)?;
+    let raw = crate::secrets::config(state, account_id)?;
     serde_json::from_str(&raw).context("IMAP-Konfiguration ungültig")
 }
 

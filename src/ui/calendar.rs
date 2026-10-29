@@ -11,7 +11,12 @@ use super::{
     chrome::{self, IC_BLUE, IC_GREEN, IC_GREY, IC_PURPLE, IC_RED},
     App, Win, CATEGORIES, MONTHS, WEEKDAYS, WEEKDAYS_LONG,
 };
-use crate::{db, models::*, providers};
+use crate::{
+    db,
+    models::*,
+    providers,
+    recur::{Freq, Recurrence},
+};
 
 const HOUR_H: f32 = 44.0;
 
@@ -40,6 +45,9 @@ pub struct EventEditor {
     start_time: NaiveTime,
     end_date: NaiveDate,
     end_time: NaiveTime,
+    /// Series pattern being edited ("Serie" dialog).
+    rec: Option<Recurrence>,
+    show_series: bool,
 }
 
 impl EventEditor {
@@ -142,6 +150,8 @@ impl App {
                 ..Default::default()
             },
             meeting,
+            rec: None,
+            show_series: false,
             start_date: start.date(),
             start_time: start.time(),
             end_date: if all_day { start.date() } else { end.date() },
@@ -150,6 +160,11 @@ impl App {
     }
 
     pub(super) fn edit_event(&mut self, e: &Event) {
+        // An occurrence of a local series opens the whole series, like Outlook's "Serie öffnen".
+        let master = (!e.recurrence.is_empty())
+            .then(|| db::get_event(&self.st.db(), e.id).ok().flatten())
+            .flatten();
+        let e = master.as_ref().unwrap_or(e);
         let (s, en) = (local(&e.start), local(&e.end));
         // All-day events end at midnight of the following day; show the last day.
         let end_date = if e.all_day {
@@ -160,6 +175,8 @@ impl App {
         self.open_window(Win::Event(EventEditor {
             ev: e.clone(),
             meeting: !e.attendees.is_empty(),
+            rec: Recurrence::parse(&e.recurrence),
+            show_series: false,
             start_date: s.date(),
             start_time: s.time(),
             end_date,
@@ -858,8 +875,25 @@ impl App {
         let mut save = false;
         let mut delete = false;
         let mut invite = false;
+        let mut answer: Option<&'static str> = None;
+        let invited = !ed.ev.response.is_empty() && ed.ev.response != "organizer";
         let closed = chrome::native_window(ctx, vid, &title, [820.0, 640.0], &t, |ui| {
             chrome::item_ribbon(ui, &t, kind, |ui| {
+                if invited {
+                    chrome::group(ui, &t, "Antworten", |ui| {
+                        if chrome::large(ui, &t, ph::CHECK, IC_GREEN, "Annehmen", true).clicked() {
+                            answer = Some("accept");
+                        }
+                        if chrome::large(ui, &t, ph::QUESTION, IC_PURPLE, "Mit\nVorbehalt", true)
+                            .clicked()
+                        {
+                            answer = Some("tentativelyAccept");
+                        }
+                        if chrome::large(ui, &t, ph::X, IC_RED, "Ablehnen", true).clicked() {
+                            answer = Some("decline");
+                        }
+                    });
+                }
                 chrome::group(ui, &t, "Aktionen", |ui| {
                     if chrome::large(
                         ui,
@@ -893,6 +927,25 @@ impl App {
                     .clicked()
                     {
                         invite = true;
+                    }
+                });
+                chrome::group(ui, &t, "Serie", |ui| {
+                    let label = if ed.rec.is_some() {
+                        "Serie \u{E182}"
+                    } else {
+                        "Serie"
+                    };
+                    if chrome::large(ui, &t, ph::REPEAT, IC_BLUE, label, true).clicked() {
+                        ed.show_series = !ed.show_series;
+                        if ed.rec.is_none() {
+                            let wd = 1u8 << ed.start_date.weekday().num_days_from_monday();
+                            ed.rec = Some(Recurrence {
+                                freq: Freq::Weekly,
+                                interval: 1,
+                                weekdays: wd,
+                                until: None,
+                            });
+                        }
                     }
                 });
                 chrome::group(ui, &t, "Optionen", |ui| {
@@ -1026,6 +1079,29 @@ impl App {
                             time_combo(ui, "ev_et", &mut ed.end_time);
                         }
                     });
+                    if let Some(r) = &ed.rec {
+                        if !ed.show_series {
+                            row(ui, "Serie", &mut |ui| {
+                                ui.label(RichText::new(format!("{}  {}", ph::REPEAT, r.describe())).color(t.text_weak));
+                            });
+                        }
+                    }
+                    if ed.show_series {
+                        series_editor(ui, &t, ed);
+                    }
+                    if invited {
+                        let who = if ed.ev.organizer.is_empty() { "Der Organisator".to_string() } else { ed.ev.organizer.clone() };
+                        let state = match ed.ev.response.as_str() {
+                            "accepted" => "Sie haben zugesagt.",
+                            "tentativelyAccepted" => "Sie haben mit Vorbehalt zugesagt.",
+                            "declined" => "Sie haben abgesagt.",
+                            _ => "Bitte antworten Sie.",
+                        };
+                        egui::Frame::new().fill(t.pane_alt).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.label(RichText::new(format!("{}  {who} hat Sie zu dieser Besprechung eingeladen. {state}", ph::INFO)).size(12.0));
+                        });
+                    }
                     if is_new {
                         row(ui, "Kalender", &mut |ui| {
                             egui::ComboBox::from_id_salt("ev_acc")
@@ -1058,8 +1134,21 @@ impl App {
                 ed.ev.attendees.clear();
             }
         }
+        if let Some(a) = answer {
+            let id = ed.ev.id;
+            let msg = match a {
+                "accept" => "Zusage gesendet.",
+                "decline" => "Absage gesendet.",
+                _ => "Zusage mit Vorbehalt gesendet.",
+            };
+            self.spawn(Some(msg), move |st, _| async move {
+                providers::respond_event(&st, id, a).await
+            });
+            return true;
+        }
         if save {
             let mut e = ed.ev.clone();
+            e.recurrence = ed.rec.as_ref().map(|r| r.format()).unwrap_or_default();
             if e.title.trim().is_empty() {
                 e.title = "(Kein Betreff)".into();
             }
@@ -1095,6 +1184,82 @@ impl App {
             return true;
         }
         closed
+    }
+}
+
+/// Outlook's "Terminserie" settings, shown inline in the appointment window.
+fn series_editor(ui: &mut egui::Ui, t: &super::theme::Theme, ed: &mut EventEditor) {
+    let start = ed.start_date;
+    let mut remove = false;
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(RichText::new("Serienmuster").strong());
+        let Some(r) = &mut ed.rec else { return };
+        ui.horizontal(|ui| {
+            for (f, label) in [
+                (Freq::Daily, "Täglich"),
+                (Freq::Weekly, "Wöchentlich"),
+                (Freq::Monthly, "Monatlich"),
+                (Freq::Yearly, "Jährlich"),
+            ] {
+                if ui.radio(r.freq == f, label).clicked() {
+                    r.freq = f;
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            let unit = match r.freq {
+                Freq::Daily => "Tag(e)".to_string(),
+                Freq::Weekly => "Woche(n) am:".to_string(),
+                Freq::Monthly => format!("Monat(e) am {}.", start.day()),
+                Freq::Yearly => format!(
+                    "Jahr(e) am {}. {}",
+                    start.day(),
+                    MONTHS[start.month0() as usize]
+                ),
+            };
+            ui.label("Jede(n)");
+            ui.add(egui::DragValue::new(&mut r.interval).range(1..=99));
+            ui.label(unit);
+        });
+        if r.freq == Freq::Weekly {
+            ui.horizontal(|ui| {
+                for (i, d) in super::WEEKDAYS_LONG.iter().enumerate() {
+                    let mut on = r.weekdays & (1 << i) != 0;
+                    if ui.checkbox(&mut on, *d).changed() {
+                        r.weekdays ^= 1 << i;
+                    }
+                }
+            });
+            if r.weekdays == 0 {
+                r.weekdays = 1 << start.weekday().num_days_from_monday();
+            }
+        }
+        ui.add_space(4.0);
+        ui.label(RichText::new("Seriendauer").strong());
+        ui.horizontal(|ui| {
+            if ui.radio(r.until.is_none(), "Kein Enddatum").clicked() {
+                r.until = None;
+            }
+            if ui.radio(r.until.is_some(), "Endet am:").clicked() && r.until.is_none() {
+                r.until = Some(start + Duration::days(90));
+            }
+            if let Some(u) = &mut r.until {
+                ui.add(
+                    egui_extras::DatePickerButton::new(u)
+                        .id_salt("rec_until")
+                        .format("%d.%m.%Y"),
+                );
+            }
+        });
+        ui.label(RichText::new(r.describe()).color(t.text_weak));
+        if ui.button(format!("{}  Serie entfernen", ph::X)).clicked() {
+            remove = true;
+        }
+    });
+    if remove {
+        ed.rec = None;
+        ed.show_series = false;
     }
 }
 

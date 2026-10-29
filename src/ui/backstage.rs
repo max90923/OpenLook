@@ -275,6 +275,7 @@ impl App {
                 });
             }
             if !is_local && chrome::menu_item(ui, ph::X, t.danger, "Konto entfernen") {
+                crate::secrets::forget(acc_id);
                 let res = db::delete_account(&self.st.db(), acc_id);
                 match res {
                     Ok(()) => self.toast("Konto entfernt.", false),
@@ -283,6 +284,21 @@ impl App {
                 self.dirty = true;
             }
         });
+
+        let auto_text = match acc.kind {
+            AccountKind::Graph => "Benachrichtigen Sie andere, dass Sie nicht im Büro sind, sich im Urlaub befinden oder nicht für E-Mails zur Verfügung stehen.",
+            _ => "Für dieses Konto nicht verfügbar – Abwesenheitsnotizen für IMAP-Konten werden im Webmail des Anbieters eingerichtet.",
+        };
+        let r = section(
+            ui,
+            ph::AIRPLANE_TILT,
+            "Automatische\nAntworten",
+            "Automatische Antworten (Abwesend)",
+            auto_text,
+        );
+        if r.clicked() && acc.kind == AccountKind::Graph {
+            self.open_auto_reply(acc.id);
+        }
 
         let trash = self.folder_for_role(acc.id, "trash");
         let trash_count = trash
@@ -715,6 +731,7 @@ impl App {
                     &email,
                     &serde_json::to_string(&cfg)?,
                 )?;
+                crate::secrets::secure(&st, id)?;
                 providers::sync(&st, id).await
             });
         }
@@ -741,6 +758,176 @@ impl App {
             );
         }
         close || closed
+    }
+}
+
+impl App {
+    fn open_auto_reply(&mut self, account_id: i64) {
+        self.open_window(Win::AutoReply(AutoReplyWin::new(account_id)));
+        self.spawn(None, move |st, tx| async move {
+            let data = providers::graph::get_auto_reply(&st, account_id).await?;
+            let _ = tx.send(super::Done::AutoReply(account_id, data));
+            Ok(())
+        });
+    }
+
+    pub(super) fn auto_reply_window(
+        &mut self,
+        ctx: &egui::Context,
+        vid: egui::ViewportId,
+        a: &mut AutoReplyWin,
+    ) -> bool {
+        let t = self.t;
+        let mut ok = false;
+        let mut cancel = false;
+        let email = self
+            .data
+            .account(a.account_id)
+            .map(|x| x.email.clone())
+            .unwrap_or_default();
+        let load_error = match &self.status {
+            (msg, true, at) if a.loading && *at > a.opened => Some(msg.clone()),
+            _ => None,
+        };
+        let closed = chrome::native_window(
+            ctx,
+            vid,
+            &format!("Automatische Antworten - {email}"),
+            [700.0, 620.0],
+            &t,
+            |ui| {
+                egui::TopBottomPanel::bottom("ar_buttons")
+                    .frame(egui::Frame::new().inner_margin(egui::Margin::same(12)))
+                    .show_inside(ui, |ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .add_sized([90.0, 26.0], egui::Button::new("Abbrechen"))
+                                .clicked()
+                            {
+                                cancel = true;
+                            }
+                            if ui
+                                .add_enabled(
+                                    !a.loading,
+                                    egui::Button::new("OK").min_size(egui::vec2(90.0, 26.0)),
+                                )
+                                .clicked()
+                            {
+                                ok = true;
+                            }
+                        });
+                    });
+                egui::CentralPanel::default().frame(egui::Frame::new().inner_margin(egui::Margin::same(16))).show_inside(ui, |ui| {
+                if a.loading {
+                    match &load_error {
+                        Some(e) => {
+                            ui.label(RichText::new(format!("{}  Die Einstellungen konnten nicht geladen werden:", ph::WARNING)).color(t.danger));
+                            ui.add(egui::Label::new(e.as_str()).wrap());
+                        }
+                        None => {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Spinner::new());
+                                ui.label("Einstellungen werden vom Server geladen …");
+                            });
+                        }
+                    }
+                    return;
+                }
+                if ui.radio(!a.data.enabled, "Keine automatischen Antworten senden").clicked() {
+                    a.data.enabled = false;
+                }
+                if ui.radio(a.data.enabled, "Automatische Antworten senden").clicked() {
+                    a.data.enabled = true;
+                }
+                ui.add_enabled_ui(a.data.enabled, |ui| {
+                    ui.indent("ar_sched", |ui| {
+                        ui.checkbox(&mut a.data.scheduled, "Nur in diesem Zeitraum senden:");
+                        ui.add_enabled_ui(a.data.scheduled, |ui| {
+                            egui::Grid::new("ar_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                                ui.label("Startzeit:");
+                                ui.horizontal(|ui| {
+                                    ui.add(egui_extras::DatePickerButton::new(&mut a.start.0).id_salt("ar_sd").format("%d.%m.%Y"));
+                                    hour_combo(ui, "ar_sh", &mut a.start.1);
+                                });
+                                ui.end_row();
+                                ui.label("Endzeit:");
+                                ui.horizontal(|ui| {
+                                    ui.add(egui_extras::DatePickerButton::new(&mut a.end.0).id_salt("ar_ed").format("%d.%m.%Y"));
+                                    hour_combo(ui, "ar_eh", &mut a.end.1);
+                                });
+                                ui.end_row();
+                            });
+                        });
+                    });
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Innerhalb meiner Organisation").strong());
+                    ui.add(egui::TextEdit::multiline(&mut a.data.internal).desired_rows(6).desired_width(f32::INFINITY));
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("Außerhalb meiner Organisation (leer = keine Antwort nach außen)").strong());
+                    ui.add(egui::TextEdit::multiline(&mut a.data.external).desired_rows(6).desired_width(f32::INFINITY));
+                });
+            });
+            },
+        );
+        if ok {
+            let to_utc = |d: chrono::NaiveDate, h: u32| {
+                super::local_to_utc_string(d.and_hms_opt(h, 0, 0).unwrap())
+                    .trim_end_matches('Z')
+                    .to_string()
+            };
+            let mut data = a.data.clone();
+            data.start = to_utc(a.start.0, a.start.1);
+            data.end = to_utc(a.end.0, a.end.1);
+            if data.scheduled && data.end <= data.start {
+                self.toast("Die Endzeit muss nach der Startzeit liegen.", true);
+                return false;
+            }
+            let id = a.account_id;
+            self.spawn(
+                Some("Automatische Antworten gespeichert."),
+                move |st, _| async move { providers::graph::set_auto_reply(&st, id, &data).await },
+            );
+            return true;
+        }
+        cancel || closed
+    }
+}
+
+pub struct AutoReplyWin {
+    pub account_id: i64,
+    opened: Instant,
+    loading: bool,
+    data: providers::graph::AutoReply,
+    /// Local date + hour of start and end.
+    start: (chrono::NaiveDate, u32),
+    end: (chrono::NaiveDate, u32),
+}
+
+impl AutoReplyWin {
+    fn new(account_id: i64) -> Self {
+        let today = super::today();
+        Self {
+            account_id,
+            opened: Instant::now(),
+            loading: true,
+            data: Default::default(),
+            start: (today, 17),
+            end: (today + chrono::Duration::days(7), 8),
+        }
+    }
+
+    pub fn loaded(&mut self, data: providers::graph::AutoReply) {
+        let local = |s: &str| {
+            super::parse_utc(&format!("{s}Z")).map(|d| (d.date_naive(), chrono::Timelike::hour(&d)))
+        };
+        if let Some(s) = local(&data.start) {
+            self.start = s;
+        }
+        if let Some(e) = local(&data.end) {
+            self.end = e;
+        }
+        self.data = data;
+        self.loading = false;
     }
 }
 

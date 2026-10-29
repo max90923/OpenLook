@@ -114,9 +114,29 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 "#;
 
+/// Columns added after the first release; created on older databases.
+const MIGRATIONS: [(&str, &str, &str); 3] = [
+    ("events", "recurrence", "TEXT NOT NULL DEFAULT ''"),
+    ("events", "response", "TEXT NOT NULL DEFAULT ''"),
+    ("events", "organizer", "TEXT NOT NULL DEFAULT ''"),
+];
+
 pub fn open(path: &str) -> Result<Connection> {
     let conn = Connection::open(path)?;
     conn.execute_batch(SCHEMA)?;
+    for (table, column, decl) in MIGRATIONS {
+        let exists: bool = conn.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?)"),
+            [column],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"),
+                [],
+            )?;
+        }
+    }
     Ok(conn)
 }
 
@@ -567,20 +587,25 @@ fn row_event(r: &Row) -> rusqlite::Result<Event> {
         show_as: r.get(10)?,
         category: r.get(11)?,
         reminder: r.get(12)?,
+        recurrence: r.get(13)?,
+        response: r.get(14)?,
+        organizer: r.get(15)?,
     })
 }
 
 const EVENT_COLS: &str =
-    "id, account_id, remote_id, title, start, end, all_day, location, body, attendees, show_as, category, reminder";
+    "id, account_id, remote_id, title, start, end, all_day, location, body, attendees, show_as, category, reminder,
+     recurrence, response, organizer";
 
 pub fn list_events(c: &Connection, from: &str, to: &str) -> Result<Vec<Event>> {
     let mut st = c.prepare(&format!(
-        "SELECT {EVENT_COLS} FROM events WHERE end >= ? AND start <= ? ORDER BY start"
+        "SELECT {EVENT_COLS} FROM events
+         WHERE (end >= ?1 AND start <= ?2) OR (recurrence != '' AND start <= ?2) ORDER BY start"
     ))?;
-    let rows = st
+    let rows: Vec<Event> = st
         .query_map([from, to], row_event)?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(rows)
+    Ok(crate::recur::expand(rows, from, to))
 }
 
 pub fn get_event(c: &Connection, id: i64) -> Result<Option<Event>> {
@@ -596,7 +621,7 @@ pub fn save_event(c: &Connection, e: &Event) -> Result<i64> {
     if e.id > 0 {
         c.execute(
             "UPDATE events SET remote_id=?, title=?, start=?, end=?, all_day=?, location=?, body=?,
-                    attendees=?, show_as=?, category=?, reminder=? WHERE id=?",
+                    attendees=?, show_as=?, category=?, reminder=?, recurrence=?, response=?, organizer=? WHERE id=?",
             params![
                 e.remote_id,
                 e.title,
@@ -609,6 +634,9 @@ pub fn save_event(c: &Connection, e: &Event) -> Result<i64> {
                 e.show_as,
                 e.category,
                 e.reminder,
+                e.recurrence,
+                e.response,
+                e.organizer,
                 e.id
             ],
         )?;
@@ -616,8 +644,8 @@ pub fn save_event(c: &Connection, e: &Event) -> Result<i64> {
     } else {
         c.execute(
             "INSERT INTO events (account_id, remote_id, title, start, end, all_day, location, body,
-                                 attendees, show_as, category, reminder)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 attendees, show_as, category, reminder, recurrence, response, organizer)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 e.account_id,
                 e.remote_id,
@@ -630,7 +658,10 @@ pub fn save_event(c: &Connection, e: &Event) -> Result<i64> {
                 e.attendees,
                 e.show_as,
                 e.category,
-                e.reminder
+                e.reminder,
+                e.recurrence,
+                e.response,
+                e.organizer
             ],
         )?;
         Ok(c.last_insert_rowid())
@@ -919,6 +950,46 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn recurring_events_expand_in_range() {
+        let c = mem();
+        let acc = insert_account(&c, AccountKind::Local, "T", "t@x.de", "{}").unwrap();
+        save_event(
+            &c,
+            &Event {
+                account_id: acc,
+                title: "Jour fixe".into(),
+                start: "2026-01-05T09:00:00Z".into(),
+                end: "2026-01-05T10:00:00Z".into(),
+                recurrence: "weekly;1;1;".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let march = list_events(&c, "2026-03-01T00:00:00Z", "2026-04-01T00:00:00Z").unwrap();
+        assert_eq!(march.len(), 5); // Mondays in March 2026: 2, 9, 16, 23, 30
+        assert!(march.iter().all(|e| e.title == "Jour fixe"));
+    }
+
+    #[test]
+    fn migrates_old_event_table() {
+        let path =
+            std::env::temp_dir().join(format!("mailcraft-migrate-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch("CREATE TABLE events (id INTEGER PRIMARY KEY, account_id INTEGER, remote_id TEXT, title TEXT, start TEXT, end TEXT, all_day INTEGER, location TEXT, body TEXT, attendees TEXT, show_as TEXT, category TEXT, reminder INTEGER)").unwrap();
+        }
+        let c = open(&path.to_string_lossy()).unwrap();
+        assert!(
+            list_events(&c, "2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z")
+                .unwrap()
+                .is_empty()
+        );
+        drop(c);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

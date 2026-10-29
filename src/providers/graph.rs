@@ -130,11 +130,12 @@ pub async fn finish_device_flow(state: &AppState, dc: &DeviceCode) -> Result<i64
         &email,
         &serde_json::to_string(&cfg)?,
     )?;
+    crate::secrets::secure(state, id)?;
     Ok(id)
 }
 
 async fn access_token(state: &AppState, account_id: i64) -> Result<String> {
-    let raw = db::account_config(&state.db(), account_id)?;
+    let raw = crate::secrets::config(state, account_id)?;
     let mut cfg: GraphConfig = serde_json::from_str(&raw)?;
     if cfg.expires_at - 120 > chrono::Utc::now().timestamp() {
         return Ok(cfg.access_token);
@@ -163,6 +164,7 @@ async fn access_token(state: &AppState, account_id: i64) -> Result<String> {
     }
     cfg.expires_at = chrono::Utc::now().timestamp() + t.expires_in;
     db::set_account_config(&state.db(), account_id, &serde_json::to_string(&cfg)?)?;
+    crate::secrets::secure(state, account_id)?;
     Ok(cfg.access_token)
 }
 
@@ -356,7 +358,7 @@ async fn sync_events(state: &AppState, account_id: i64) -> Result<()> {
     let items = get_all(
         state,
         account_id,
-        &format!("/me/calendarView?startDateTime={from}&endDateTime={to}&$top=200&$select=id,subject,start,end,isAllDay,location,body,attendees,showAs,categories,reminderMinutesBeforeStart,isReminderOn"),
+        &format!("/me/calendarView?startDateTime={from}&endDateTime={to}&$top=200&$select=id,subject,start,end,isAllDay,location,body,attendees,showAs,categories,reminderMinutesBeforeStart,isReminderOn,responseStatus,organizer,isOrganizer"),
     )
     .await?;
     let c = state.db();
@@ -402,6 +404,14 @@ fn event_from_graph(account_id: i64, e: &Value) -> Event {
         } else {
             -1
         },
+        // calendarView returns single occurrences, so no pattern is kept locally.
+        recurrence: String::new(),
+        response: if e["isOrganizer"].as_bool().unwrap_or(true) {
+            String::new()
+        } else {
+            s(&e["responseStatus"]["response"])
+        },
+        organizer: s(&e["organizer"]["emailAddress"]["address"]),
     }
 }
 
@@ -643,7 +653,7 @@ fn event_to_graph(e: &Event) -> Value {
         let v = v.split('+').next().unwrap_or(v);
         json!({ "dateTime": v, "timeZone": "UTC" })
     };
-    json!({
+    let mut v = json!({
         "subject": e.title,
         "start": dt(&e.start),
         "end": dt(&e.end),
@@ -656,7 +666,97 @@ fn event_to_graph(e: &Event) -> Value {
         "categories": if e.category.is_empty() { vec![] } else { vec![e.category.clone()] },
         "isReminderOn": e.reminder >= 0,
         "reminderMinutesBeforeStart": e.reminder.max(0),
+    });
+    if let Some(r) = crate::recur::Recurrence::parse(&e.recurrence) {
+        let start = chrono::DateTime::parse_from_rfc3339(&e.start)
+            .map(|d| d.with_timezone(&chrono::Local).date_naive())
+            .unwrap_or_default();
+        v["recurrence"] = r.to_graph(start);
+    }
+    v
+}
+
+/// Answer a meeting request: "accept", "tentativelyAccept" or "decline".
+pub async fn respond_event(
+    state: &AppState,
+    account_id: i64,
+    remote_id: &str,
+    answer: &str,
+) -> Result<()> {
+    call(
+        state,
+        account_id,
+        Method::POST,
+        &format!("/me/events/{remote_id}/{answer}"),
+        Some(json!({ "sendResponse": true, "comment": "" })),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Automatic replies ("Abwesenheitsnotiz") of a Microsoft 365 mailbox.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AutoReply {
+    pub enabled: bool,
+    /// Only between `start` and `end` (UTC "YYYY-MM-DDTHH:MM:SS").
+    pub scheduled: bool,
+    pub start: String,
+    pub end: String,
+    pub internal: String,
+    pub external: String,
+}
+
+pub async fn get_auto_reply(state: &AppState, account_id: i64) -> Result<AutoReply> {
+    let v = call(
+        state,
+        account_id,
+        Method::GET,
+        "/me/mailboxSettings/automaticRepliesSetting",
+        None,
+    )
+    .await?;
+    let status = s(&v["status"]);
+    Ok(AutoReply {
+        enabled: status != "disabled",
+        scheduled: status == "scheduled",
+        start: s(&v["scheduledStartDateTime"]["dateTime"])
+            .chars()
+            .take(19)
+            .collect(),
+        end: s(&v["scheduledEndDateTime"]["dateTime"])
+            .chars()
+            .take(19)
+            .collect(),
+        internal: mail::strip_html(&s(&v["internalReplyMessage"])),
+        external: mail::strip_html(&s(&v["externalReplyMessage"])),
     })
+}
+
+pub async fn set_auto_reply(state: &AppState, account_id: i64, a: &AutoReply) -> Result<()> {
+    let status = match (a.enabled, a.scheduled) {
+        (false, _) => "disabled",
+        (true, true) => "scheduled",
+        (true, false) => "alwaysEnabled",
+    };
+    let mut setting = json!({
+        "status": status,
+        "internalReplyMessage": mail::text_to_html(&a.internal),
+        "externalReplyMessage": mail::text_to_html(&a.external),
+        "externalAudience": if a.external.trim().is_empty() { "none" } else { "all" },
+    });
+    if a.scheduled {
+        setting["scheduledStartDateTime"] = json!({ "dateTime": a.start, "timeZone": "UTC" });
+        setting["scheduledEndDateTime"] = json!({ "dateTime": a.end, "timeZone": "UTC" });
+    }
+    call(
+        state,
+        account_id,
+        Method::PATCH,
+        "/me/mailboxSettings",
+        Some(json!({ "automaticRepliesSetting": setting })),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Create or update an event remotely; returns the remote id.
