@@ -85,6 +85,19 @@ pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
     };
     let err = res.as_ref().err().map(|e| format!("{e:#}"));
     db::set_sync_result(&state.db(), account_id, err.as_deref())?;
+    if res.is_ok() && acc.kind != AccountKind::Local {
+        // Rules only handle mail that arrives after the first sync.
+        let applied = if acc.last_sync.is_none() {
+            crate::rules::mark_all_handled(state, account_id)
+        } else {
+            crate::rules::apply(state, account_id, true)
+                .await
+                .map(|_| ())
+        };
+        if let Err(e) = applied {
+            tracing::warn!("Regeln für {}: {e:#}", acc.email);
+        }
+    }
     res
 }
 
@@ -297,6 +310,73 @@ pub async fn ensure_attachments(state: &AppState, message_id: i64) -> Result<()>
     db::replace_attachments(&state.db(), message_id, &list)
 }
 
+// ---------------------------------------------------------------- folders
+
+pub async fn create_folder(
+    state: &AppState,
+    account_id: i64,
+    parent: Option<i64>,
+    name: &str,
+) -> Result<i64> {
+    let name = name.trim();
+    if name.is_empty() {
+        bail!("Bitte einen Ordnernamen eingeben");
+    }
+    let parent_remote = match parent {
+        Some(id) => Some(
+            db::get_folder(&state.db(), id)?
+                .ok_or_else(|| anyhow!("Ordner fehlt"))?
+                .remote_id,
+        ),
+        None => None,
+    };
+    let remote = match kind_of(state, account_id)? {
+        AccountKind::Local => format!("local-{}-{}", name, mail::now_utc()),
+        AccountKind::Imap => {
+            imap::create_folder(state, account_id, parent_remote.as_deref(), name).await?
+        }
+        AccountKind::Graph => {
+            graph::create_folder(state, account_id, parent_remote.as_deref(), name).await?
+        }
+    };
+    db::upsert_folder(&state.db(), account_id, &remote, name, "other")
+}
+
+fn editable_folder(state: &AppState, id: i64) -> Result<Folder> {
+    let f = db::get_folder(&state.db(), id)?.ok_or_else(|| anyhow!("Ordner fehlt"))?;
+    if f.role != "other" {
+        bail!("Standardordner können nicht umbenannt oder gelöscht werden");
+    }
+    Ok(f)
+}
+
+pub async fn rename_folder(state: &AppState, id: i64, name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        bail!("Bitte einen Ordnernamen eingeben");
+    }
+    let f = editable_folder(state, id)?;
+    let remote = match kind_of(state, f.account_id)? {
+        AccountKind::Local => f.remote_id.clone(),
+        AccountKind::Imap => imap::rename_folder(state, f.account_id, &f.remote_id, name).await?,
+        AccountKind::Graph => {
+            graph::rename_folder(state, f.account_id, &f.remote_id, name).await?;
+            f.remote_id.clone()
+        }
+    };
+    db::rename_folder(&state.db(), id, &remote, name)
+}
+
+pub async fn delete_folder(state: &AppState, id: i64) -> Result<()> {
+    let f = editable_folder(state, id)?;
+    match kind_of(state, f.account_id)? {
+        AccountKind::Local => {}
+        AccountKind::Imap => imap::delete_folder(state, f.account_id, &f.remote_id).await?,
+        AccountKind::Graph => graph::delete_folder(state, f.account_id, &f.remote_id).await?,
+    }
+    db::delete_folder(&state.db(), id)
+}
+
 // ---------------------------------------------------------------- calendar / contacts / tasks
 
 fn kind_of(state: &AppState, account_id: i64) -> Result<AccountKind> {
@@ -414,6 +494,26 @@ mod tests {
         assert_ne!(inbox, trash);
         delete_message(&state, id).await.unwrap();
         assert!(db::get_message(&state.db(), id).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn local_folder_lifecycle() {
+        let state = AppState::in_memory();
+        crate::seed::ensure_local_account(&state.db()).unwrap();
+        let acc = db::list_accounts(&state.db()).unwrap()[0].id;
+        let id = create_folder(&state, acc, None, "Projekte").await.unwrap();
+        rename_folder(&state, id, "Kunden").await.unwrap();
+        assert_eq!(
+            db::get_folder(&state.db(), id).unwrap().unwrap().name,
+            "Kunden"
+        );
+        let inbox = db::folder_by_role(&state.db(), acc, "inbox")
+            .unwrap()
+            .unwrap();
+        assert!(delete_folder(&state, inbox.id).await.is_err());
+        delete_folder(&state, id).await.unwrap();
+        assert!(db::get_folder(&state.db(), id).unwrap().is_none());
+        assert!(create_folder(&state, acc, None, "  ").await.is_err());
     }
 
     #[tokio::test]

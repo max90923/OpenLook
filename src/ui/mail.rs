@@ -46,6 +46,8 @@ pub struct MailView {
     atts: Vec<Attachment>,
     collapsed: HashSet<&'static str>,
     favorites_closed: bool,
+    expanded: HashSet<String>,
+    folder_dialog: Option<FolderDialog>,
     closed_accounts: HashSet<i64>,
 }
 
@@ -54,9 +56,30 @@ impl MailView {
         self.messages.len()
     }
 
+    pub fn selected_id(&self) -> Option<i64> {
+        self.selected
+    }
+
     pub fn unread(&self) -> usize {
         self.messages.iter().filter(|m| !m.is_read).count()
     }
+}
+
+/// Small dialogs of the folder pane.
+enum FolderDialog {
+    New {
+        account: i64,
+        parent: Option<i64>,
+        name: String,
+    },
+    Rename {
+        id: i64,
+        name: String,
+    },
+    Delete {
+        id: i64,
+        name: String,
+    },
 }
 
 pub(super) enum Act {
@@ -72,6 +95,12 @@ pub(super) enum Act {
     OpenAttachment(Attachment),
     SaveAttachment(Attachment),
     SaveAllAttachments(i64),
+    ToggleConversation(String),
+    Print(i64),
+    NewFolder(i64, Option<i64>),
+    RenameFolder(i64),
+    DeleteFolder(i64),
+    CreateRule(i64),
     Toast(String),
 }
 
@@ -311,6 +340,36 @@ impl App {
                         }
                     }
                 }
+                Act::ToggleConversation(key) => {
+                    if !self.mail.expanded.remove(&key) {
+                        self.mail.expanded.insert(key);
+                    }
+                }
+                Act::Print(id) => self.print_message(id),
+                Act::NewFolder(account, parent) => {
+                    self.mail.folder_dialog = Some(FolderDialog::New {
+                        account,
+                        parent,
+                        name: String::new(),
+                    });
+                }
+                Act::RenameFolder(id) => {
+                    if let Some(f) = self.data.folders.iter().find(|f| f.id == id) {
+                        self.mail.folder_dialog = Some(FolderDialog::Rename {
+                            id,
+                            name: f.name.clone(),
+                        });
+                    }
+                }
+                Act::DeleteFolder(id) => {
+                    if let Some(f) = self.data.folders.iter().find(|f| f.id == id) {
+                        self.mail.folder_dialog = Some(FolderDialog::Delete {
+                            id,
+                            name: f.name.clone(),
+                        });
+                    }
+                }
+                Act::CreateRule(id) => self.open_rules(Some(id)),
                 Act::Toast(t) => self.toast(t, true),
             }
         }
@@ -357,6 +416,9 @@ impl App {
     // ------------------------------------------------------------ ribbon
 
     pub fn mail_ribbon(&mut self, ui: &mut egui::Ui) {
+        if self.ribbon_tab == 2 {
+            self.mail_folder_ribbon(ui);
+        }
         if self.ribbon_tab != 0 {
             let done = self.common_ribbon(ui);
             if !done && self.ribbon_tab == 3 {
@@ -454,6 +516,27 @@ impl App {
             if let Some(m) = &sel {
                 chrome::menu(&r, |ui| self.move_menu(ui, m, &mut acts));
             }
+            chrome::column(ui, |ui| {
+                let r = chrome::small(ui, &t, ph::FUNNEL_SIMPLE, IC_BLUE, "Regeln \u{E136}", true);
+                chrome::menu(&r, |ui| {
+                    if let Some(m) = &sel {
+                        if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Regel erstellen…") {
+                            acts.push(Act::CreateRule(m.id));
+                        }
+                    }
+                    if chrome::menu_item(
+                        ui,
+                        ph::FUNNEL_SIMPLE,
+                        IC_BLUE,
+                        "Regeln und Benachrichtigungen verwalten…",
+                    ) {
+                        self.open_rules(None);
+                    }
+                });
+                if chrome::small(ui, &t, ph::PRINTER, IC_GREY, "Drucken", has).clicked() {
+                    acts.push(Act::Print(sel.as_ref().unwrap().id));
+                }
+            });
         });
         chrome::group(ui, &t, "Kategorien", |ui| {
             chrome::column(ui, |ui| {
@@ -560,8 +643,89 @@ impl App {
         self.mail_apply(acts);
     }
 
+    fn mail_folder_ribbon(&mut self, ui: &mut egui::Ui) {
+        let t = self.t;
+        let folder = self
+            .mail
+            .folder_id
+            .and_then(|id| self.data.folders.iter().find(|f| f.id == id))
+            .cloned();
+        let editable = folder.as_ref().is_some_and(|f| f.role == "other");
+        let mut acts = vec![];
+        chrome::group(ui, &t, "Neu", |ui| {
+            if chrome::large(
+                ui,
+                &t,
+                ph::FOLDER_PLUS,
+                IC_YELLOW,
+                "Neuer\nOrdner",
+                folder.is_some(),
+            )
+            .clicked()
+            {
+                let f = folder.as_ref().unwrap();
+                acts.push(Act::NewFolder(
+                    f.account_id,
+                    (f.role == "other").then_some(f.id),
+                ));
+            }
+        });
+        chrome::group(ui, &t, "Aktionen", |ui| {
+            if chrome::large(
+                ui,
+                &t,
+                ph::PENCIL_LINE,
+                IC_BLUE,
+                "Ordner\numbenennen",
+                editable,
+            )
+            .clicked()
+            {
+                acts.push(Act::RenameFolder(folder.as_ref().unwrap().id));
+            }
+            if chrome::large(
+                ui,
+                &t,
+                ph::FOLDER_MINUS,
+                IC_RED,
+                "Ordner\nlöschen",
+                editable,
+            )
+            .clicked()
+            {
+                acts.push(Act::DeleteFolder(folder.as_ref().unwrap().id));
+            }
+        });
+        chrome::group(ui, &t, "Aufräumen", |ui| {
+            if chrome::large(
+                ui,
+                &t,
+                ph::ENVELOPE_SIMPLE_OPEN,
+                IC_BLUE,
+                "Alle als\ngelesen",
+                folder.is_some(),
+            )
+            .clicked()
+            {
+                acts.push(Act::MarkFolderRead(folder.as_ref().unwrap().id));
+            }
+        });
+        self.mail_apply(acts);
+    }
+
     fn mail_view_ribbon(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
+        chrome::group(ui, &t, "Nachrichten", |ui| {
+            let label = if self.prefs.conversations {
+                "Als Unterhaltungen\nanzeigen \u{E182}"
+            } else {
+                "Als Unterhaltungen\nanzeigen"
+            };
+            if chrome::large(ui, &t, ph::CHATS, IC_BLUE, label, true).clicked() {
+                self.prefs.conversations = !self.prefs.conversations;
+                self.save_setting("conversations", serde_json::json!(self.prefs.conversations));
+            }
+        });
         chrome::group(ui, &t, "Layout", |ui| {
             let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "Lesebereich\n\u{E136}", true);
             chrome::menu(&r, |ui| {
@@ -801,6 +965,21 @@ impl App {
             acts.push(Act::Folder(f.id));
         }
         resp.context_menu(|ui| {
+            if chrome::menu_item(ui, ph::FOLDER_PLUS, IC_YELLOW, "Neuer Ordner…") {
+                acts.push(Act::NewFolder(
+                    f.account_id,
+                    (f.role == "other").then_some(f.id),
+                ));
+            }
+            if f.role == "other" {
+                if chrome::menu_item(ui, ph::PENCIL_LINE, IC_BLUE, "Ordner umbenennen…") {
+                    acts.push(Act::RenameFolder(f.id));
+                }
+                if chrome::menu_item(ui, ph::FOLDER_MINUS, IC_RED, "Ordner löschen") {
+                    acts.push(Act::DeleteFolder(f.id));
+                }
+            }
+            ui.separator();
             if chrome::menu_item(
                 ui,
                 ph::ENVELOPE_SIMPLE_OPEN,
@@ -850,7 +1029,121 @@ impl App {
                     .show_inside(ui, |ui| self.message_list(ui, &mut acts));
             }
         }
+        self.folder_dialog_ui(ui.ctx());
         self.mail_apply(acts);
+    }
+
+    fn folder_dialog_ui(&mut self, ctx: &egui::Context) {
+        let Some(d) = &mut self.mail.folder_dialog else {
+            return;
+        };
+        let mut open = true;
+        let mut ok = false;
+        let mut cancel = false;
+        let title = match d {
+            FolderDialog::New { .. } => "Neuen Ordner erstellen",
+            FolderDialog::Rename { .. } => "Ordner umbenennen",
+            FolderDialog::Delete { .. } => "MailCraft",
+        };
+        egui::Window::new(title)
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                match d {
+                    FolderDialog::New { name, .. } | FolderDialog::Rename { name, .. } => {
+                        ui.label("Name:");
+                        let r = ui.add(egui::TextEdit::singleline(name).desired_width(280.0));
+                        r.request_focus();
+                        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            ok = true;
+                        }
+                    }
+                    FolderDialog::Delete { name, .. } => {
+                        ui.label(format!("Möchten Sie den Ordner \"{name}\" und alle darin enthaltenen Elemente wirklich löschen?"));
+                    }
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.add_sized([80.0, 24.0], egui::Button::new(if matches!(d, FolderDialog::Delete { .. }) { "Ja" } else { "OK" })).clicked() {
+                        ok = true;
+                    }
+                    if ui.add_sized([80.0, 24.0], egui::Button::new("Abbrechen")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if ok {
+            match self.mail.folder_dialog.take().unwrap() {
+                FolderDialog::New {
+                    account,
+                    parent,
+                    name,
+                } => self.spawn(Some("Ordner erstellt."), move |st, _| async move {
+                    providers::create_folder(&st, account, parent, &name)
+                        .await
+                        .map(|_| ())
+                }),
+                FolderDialog::Rename { id, name } => self
+                    .spawn(Some("Ordner umbenannt."), move |st, _| async move {
+                        providers::rename_folder(&st, id, &name).await
+                    }),
+                FolderDialog::Delete { id, .. } => {
+                    if self.mail.folder_id == Some(id) {
+                        self.mail.folder_id = None;
+                    }
+                    self.spawn(Some("Ordner gelöscht."), move |st, _| async move {
+                        providers::delete_folder(&st, id).await
+                    })
+                }
+            }
+        } else if !open || cancel {
+            self.mail.folder_dialog = None;
+        }
+    }
+
+    /// Print like Outlook's memo style: header block + body, via the system's print dialog.
+    pub(super) fn print_message(&mut self, id: i64) {
+        let Some(m) = db::get_message(&self.st.db(), id).ok().flatten() else {
+            return;
+        };
+        let atts = db::list_attachments(&self.st.db(), id).unwrap_or_default();
+        let esc = crate::mail::escape_html;
+        let me = self
+            .data
+            .account(m.summary.account_id)
+            .map(|a| a.name.clone())
+            .unwrap_or_default();
+        let row = |k: &str, v: &str| {
+            if v.is_empty() {
+                String::new()
+            } else {
+                format!("<tr><td><b>{k}:</b></td><td>{}</td></tr>", esc(v))
+            }
+        };
+        let names: Vec<&str> = atts.iter().map(|a| a.name.as_str()).collect();
+        let html = format!(
+            "<!doctype html><meta charset=\"utf-8\"><title>{subject}</title>\
+             <style>body{{font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:11pt;margin:2cm}}h1{{font-size:14pt;border-bottom:2px solid #000;padding-bottom:4px}}td{{vertical-align:top;padding:1px 12px 1px 0}}hr{{margin:12px 0}}</style>\
+             <h1>{me}</h1><table>{from}{date}{to}{cc}{subj}{att}{imp}</table><hr>{body}\
+             <script>window.onload=()=>window.print()</script>",
+            subject = esc(&m.summary.subject),
+            me = esc(&me),
+            from = row("Von", &format!("{} <{}>", m.summary.from_name, m.summary.from_addr)),
+            date = row("Gesendet", &super::long_date(&m.summary.date)),
+            to = row("An", &m.to),
+            cc = row("Cc", &m.cc),
+            subj = row("Betreff", &m.summary.subject),
+            att = row("Anlagen", &names.join("; ")),
+            imp = if m.summary.importance == "high" { row("Wichtigkeit", "Hoch") } else { String::new() },
+            body = if m.body_html.trim().is_empty() { crate::mail::text_to_html(&m.body_text) } else { m.body_html.clone() },
+        );
+        let path = std::env::temp_dir().join(format!("mailcraft-druck-{id}.html"));
+        match std::fs::write(&path, html) {
+            Ok(()) => super::open_external(&path.to_string_lossy()),
+            Err(e) => self.toast(format!("Drucken fehlgeschlagen: {e}"), true),
+        }
     }
 
     fn mail_shortcuts(&self, ctx: &egui::Context, acts: &mut Vec<Act>) {
@@ -903,6 +1196,9 @@ impl App {
                 }
                 if i.key_pressed(egui::Key::Enter) {
                     acts.push(Act::Open(m.id));
+                }
+                if cmd && i.key_pressed(egui::Key::P) {
+                    acts.push(Act::Print(m.id));
                 }
             }
             let pos = sel.and_then(|m| self.mail.messages.iter().position(|x| x.id == m.id));
@@ -1056,7 +1352,23 @@ impl App {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let mut last_group = "";
                 let mut hidden = false;
+                let conv = self.prefs.conversations;
+                let mut threads: std::collections::HashMap<String, Vec<&MessageSummary>> =
+                    Default::default();
+                if conv {
+                    for m in &messages {
+                        threads
+                            .entry(conversation_key(&m.subject))
+                            .or_default()
+                            .push(m);
+                    }
+                }
+                let mut done: HashSet<String> = HashSet::new();
                 for m in &messages {
+                    let key = conversation_key(&m.subject);
+                    if conv && !done.insert(key.clone()) {
+                        continue;
+                    }
                     let group = if m.is_pinned {
                         "Angeheftet"
                     } else if self.mail.sort == Sort::Date {
@@ -1103,7 +1415,21 @@ impl App {
                                 .map(|f| f.name.as_str())
                         })
                         .flatten();
-                    self.message_row(ui, m, folder_name, acts);
+                    let members = threads.get(&key).map(|v| v.len()).unwrap_or(1);
+                    let expanded = self.mail.expanded.contains(&key);
+                    self.message_row(
+                        ui,
+                        m,
+                        folder_name,
+                        (conv && members > 1).then_some((members, expanded, key.as_str())),
+                        false,
+                        acts,
+                    );
+                    if conv && expanded {
+                        for child in threads[&key].iter().skip(1) {
+                            self.message_row(ui, child, None, None, true, acts);
+                        }
+                    }
                 }
             });
         self.mail.messages = messages;
@@ -1114,6 +1440,8 @@ impl App {
         ui: &mut egui::Ui,
         m: &MessageSummary,
         folder_name: Option<&str>,
+        thread: Option<(usize, bool, &str)>,
+        child: bool,
         acts: &mut Vec<Act>,
     ) {
         let t = &self.t;
@@ -1144,8 +1472,25 @@ impl App {
             egui::Stroke::new(1.0_f32, t.border.gamma_multiply(0.6)),
         );
 
-        let x = rect.left() + 14.0;
+        let x = rect.left() + if child { 34.0 } else { 18.0 };
         let right = rect.right() - 24.0;
+        let caret = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 9.0, rect.top() + 14.0),
+            egui::vec2(16.0, 18.0),
+        );
+        if let Some((_, expanded, _)) = thread {
+            p.text(
+                caret.center(),
+                egui::Align2::CENTER_CENTER,
+                if expanded {
+                    ph::CARET_DOWN
+                } else {
+                    ph::CARET_RIGHT
+                },
+                egui::FontId::proportional(12.0),
+                t.text_weak,
+            );
+        }
         let unread = !m.is_read;
         // Line 1: sender, right side: categories, attachment, flag/delete.
         let mut rx = right;
@@ -1236,10 +1581,13 @@ impl App {
             );
             sx += 9.0;
         }
-        let subject = match folder_name {
+        let mut subject = match folder_name {
             Some(f) => format!("{}  ({f})", m.subject),
             None => m.subject.clone(),
         };
+        if let Some((n, _, _)) = thread {
+            subject = format!("{subject}  ({n})");
+        }
         let subj_color = if unread { t.accent } else { t.text };
         let sg = super::one_line(
             &p,
@@ -1272,7 +1620,10 @@ impl App {
                 .find(|(r, _)| r.expand(3.0).contains(pos))
                 .map(|(_, k)| *k)
         });
-        if resp.clicked() {
+        let on_caret = thread.is_some() && pointer.is_some_and(|p| caret.expand(2.0).contains(p));
+        if resp.clicked() && on_caret {
+            acts.push(Act::ToggleConversation(thread.unwrap().2.to_string()));
+        } else if resp.clicked() {
             match hit {
                 Some(0) => acts.push(Act::Delete(m.id)),
                 Some(_) => acts.push(Act::Patch(
@@ -1596,6 +1947,11 @@ pub(super) fn read_message(
                     }
                 });
         });
+}
+
+/// Messages with the same subject (without AW:/WG: prefixes) form a conversation.
+fn conversation_key(subject: &str) -> String {
+    strip_prefixes(subject).to_lowercase()
 }
 
 fn file_icon(mime: &str) -> &'static str {

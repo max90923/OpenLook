@@ -260,6 +260,19 @@ pub fn upsert_folder(
     )?)
 }
 
+pub fn rename_folder(c: &Connection, id: i64, remote_id: &str, name: &str) -> Result<()> {
+    c.execute(
+        "UPDATE folders SET remote_id = ?, name = ? WHERE id = ?",
+        params![remote_id, name, id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_folder(c: &Connection, id: i64) -> Result<()> {
+    c.execute("DELETE FROM folders WHERE id = ?", [id])?;
+    Ok(())
+}
+
 /// Remove folders of an account that are no longer present remotely.
 pub fn prune_folders(c: &Connection, account_id: i64, keep: &[i64]) -> Result<()> {
     let ids: Vec<String> = keep.iter().map(|i| i.to_string()).collect();

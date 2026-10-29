@@ -95,6 +95,15 @@ impl App {
                 if item(ui, "Informationen", page == Page::Info) {
                     self.backstage = Some(Page::Info);
                 }
+                if item(ui, "Drucken", false) {
+                    match self.mail.selected_id() {
+                        Some(id) if self.module == super::Module::Mail => {
+                            self.backstage = None;
+                            self.print_message(id);
+                        }
+                        _ => self.toast("Wählen Sie zum Drucken eine E-Mail aus.", true),
+                    }
+                }
                 if item(ui, "Optionen", false) {
                     self.open_options();
                 }

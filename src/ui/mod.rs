@@ -15,6 +15,7 @@ mod html;
 mod mail;
 mod people;
 mod reminders;
+mod rules_ui;
 mod tasks;
 mod theme;
 
@@ -115,6 +116,7 @@ pub struct Prefs {
     pub work_start: u32,
     pub work_end: u32,
     pub zoom: f32,
+    pub conversations: bool,
 }
 
 impl Prefs {
@@ -136,6 +138,7 @@ impl Prefs {
             work_start: num("work_start", 8.0) as u32,
             work_end: num("work_end", 17.0) as u32,
             zoom: num("zoom", 1.0) as f32,
+            conversations: flag("conversations", false),
         }
     }
 }
@@ -181,6 +184,7 @@ pub enum Win {
     Task(tasks::TaskEditor),
     Options(backstage::OptionsWin),
     AddAccount(backstage::AddAccountWin),
+    Rules(rules_ui::RulesWin),
 }
 
 pub struct WinEntry {
@@ -976,6 +980,7 @@ impl App {
                 Win::Task(t) => self.task_window(ctx, vid, t),
                 Win::Options(o) => self.options_window(ctx, vid, o),
                 Win::AddAccount(a) => self.add_account_window(ctx, vid, a),
+                Win::Rules(r) => self.rules_window(ctx, vid, r),
             };
             if close {
                 closed.push(w.id);

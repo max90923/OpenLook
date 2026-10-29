@@ -566,6 +566,52 @@ pub async fn send(state: &AppState, account_id: i64, m: &OutgoingMail) -> Result
     Ok(())
 }
 
+/// Create a mail folder; returns its id.
+pub async fn create_folder(
+    state: &AppState,
+    account_id: i64,
+    parent: Option<&str>,
+    name: &str,
+) -> Result<String> {
+    let path = match parent {
+        Some(p) => format!("/me/mailFolders/{p}/childFolders"),
+        None => "/me/mailFolders".to_string(),
+    };
+    let r = call(
+        state,
+        account_id,
+        Method::POST,
+        &path,
+        Some(json!({ "displayName": name })),
+    )
+    .await?;
+    Ok(s(&r["id"]))
+}
+
+pub async fn rename_folder(state: &AppState, account_id: i64, id: &str, name: &str) -> Result<()> {
+    call(
+        state,
+        account_id,
+        Method::PATCH,
+        &format!("/me/mailFolders/{id}"),
+        Some(json!({ "displayName": name })),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_folder(state: &AppState, account_id: i64, id: &str) -> Result<()> {
+    call(
+        state,
+        account_id,
+        Method::DELETE,
+        &format!("/me/mailFolders/{id}"),
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
 /// Download the file attachments of a message.
 pub async fn load_attachments(
     state: &AppState,

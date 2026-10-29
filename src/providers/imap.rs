@@ -284,6 +284,63 @@ pub async fn send(
     Ok(())
 }
 
+/// Hierarchy delimiter of the server ("/" or ".").
+async fn delimiter(s: &mut Session) -> Result<String> {
+    let names: Vec<_> = s.list(Some(""), Some("\"\"")).await?.try_collect().await?;
+    Ok(names
+        .first()
+        .and_then(|n| n.delimiter())
+        .unwrap_or("/")
+        .to_string())
+}
+
+/// Create a folder (below `parent`, if given); returns its full name.
+pub async fn create_folder(
+    state: &AppState,
+    account_id: i64,
+    parent: Option<&str>,
+    name: &str,
+) -> Result<String> {
+    let cfg = config(state, account_id)?;
+    let mut s = connect(&cfg).await?;
+    let full = match parent {
+        Some(p) => format!("{p}{}{name}", delimiter(&mut s).await?),
+        None => name.to_string(),
+    };
+    s.create(&full).await?;
+    let _ = s.subscribe(&full).await;
+    s.logout().await.ok();
+    Ok(full)
+}
+
+/// Rename a folder, keeping it below the same parent; returns the new full name.
+pub async fn rename_folder(
+    state: &AppState,
+    account_id: i64,
+    remote: &str,
+    name: &str,
+) -> Result<String> {
+    let cfg = config(state, account_id)?;
+    let mut s = connect(&cfg).await?;
+    let d = delimiter(&mut s).await?;
+    let full = match remote.rsplit_once(d.as_str()) {
+        Some((parent, _)) => format!("{parent}{d}{name}"),
+        None => name.to_string(),
+    };
+    s.rename(remote, &full).await?;
+    let _ = s.subscribe(&full).await;
+    s.logout().await.ok();
+    Ok(full)
+}
+
+pub async fn delete_folder(state: &AppState, account_id: i64, remote: &str) -> Result<()> {
+    let cfg = config(state, account_id)?;
+    let mut s = connect(&cfg).await?;
+    s.delete(remote).await?;
+    s.logout().await.ok();
+    Ok(())
+}
+
 /// Validate settings by logging in once.
 pub async fn test_login(cfg: &ImapConfig) -> Result<()> {
     if cfg.imap_host.is_empty() || cfg.username.is_empty() {

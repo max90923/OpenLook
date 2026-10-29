@@ -702,6 +702,11 @@ impl App {
                         }
                     }
                 });
+                chrome::group(ui, &t, "Drucken", |ui| {
+                    if chrome::large(ui, &t, ph::PRINTER, IC_GREY, "Drucken", true).clicked() {
+                        acts.push(Act::Print(s.id));
+                    }
+                });
                 chrome::group(ui, &t, "Antworten", |ui| {
                     if chrome::large(ui, &t, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Antworten", true)
                         .clicked()

@@ -9,6 +9,7 @@ mod db;
 mod mail;
 mod models;
 mod providers;
+mod rules;
 mod seed;
 mod state;
 mod ui;
