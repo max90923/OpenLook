@@ -9,7 +9,7 @@ use egui_phosphor::regular as ph;
 use super::{
     chrome::{self, IC_BLUE, IC_GREEN, IC_GREY, IC_PURPLE, IC_RED, IC_YELLOW},
     compose::ComposeKind,
-    App, ReadingPane, Win, CATEGORIES,
+    html, App, ReadingPane, Win, CATEGORIES,
 };
 use crate::{
     db,
@@ -766,37 +766,18 @@ impl App {
         let p = ui.painter();
         let show_count = f.role != "sent" && f.role != "drafts";
         let bold = f.unread > 0 && show_count;
-        let name = super::one_line(
-            p,
-            label,
-            egui::FontId::proportional(13.0),
-            t.text,
-            w - indent - 50.0,
-        );
+        let font = if bold {
+            chrome::bold_font(13.0)
+        } else {
+            egui::FontId::proportional(13.0)
+        };
+        let name = super::one_line(p, label, font, t.text, w - indent - 50.0);
         let name_w = name.size().x;
         p.galley(
             egui::pos2(rect.left() + indent, rect.center().y - name.size().y / 2.0),
             name,
             t.text,
         );
-        if bold {
-            // Faux bold like Outlook's unread folders.
-            let again = super::one_line(
-                p,
-                label,
-                egui::FontId::proportional(13.0),
-                t.text,
-                w - indent - 50.0,
-            );
-            p.galley(
-                egui::pos2(
-                    rect.left() + indent + 0.6,
-                    rect.center().y - again.size().y / 2.0,
-                ),
-                again,
-                t.text,
-            );
-        }
         let count = if show_count && f.unread > 0 {
             Some(f.unread.to_string())
         } else if f.role == "drafts" && f.total > 0 {
@@ -1164,7 +1145,7 @@ impl App {
         );
 
         let x = rect.left() + 14.0;
-        let right = rect.right() - 10.0;
+        let right = rect.right() - 24.0;
         let unread = !m.is_read;
         // Line 1: sender, right side: categories, attachment, flag/delete.
         let mut rx = right;
@@ -1228,15 +1209,15 @@ impl App {
         let g = super::one_line(
             &p,
             name,
-            egui::FontId::proportional(14.0),
+            if unread {
+                chrome::bold_font(14.0)
+            } else {
+                egui::FontId::proportional(14.0)
+            },
             name_color,
             rx - x - 6.0,
         );
-        let gy = rect.top() + 5.0;
-        if unread {
-            p.galley(egui::pos2(x + 0.6, gy), g.clone(), name_color);
-        }
-        p.galley(egui::pos2(x, gy), g, name_color);
+        p.galley(egui::pos2(x, rect.top() + 5.0), g, name_color);
 
         // Line 2: subject + date.
         let date = super::short_date(&m.date);
@@ -1263,17 +1244,14 @@ impl App {
         let sg = super::one_line(
             &p,
             &subject,
-            egui::FontId::proportional(13.0),
+            if unread {
+                chrome::bold_font(13.0)
+            } else {
+                egui::FontId::proportional(13.0)
+            },
             subj_color,
             right - sx - dw - 10.0,
         );
-        if unread {
-            p.galley(
-                egui::pos2(sx + 0.5, rect.top() + 24.0),
-                sg.clone(),
-                subj_color,
-            );
-        }
         p.galley(egui::pos2(sx, rect.top() + 24.0), sg, subj_color);
         // Line 3: preview.
         if self.prefs.preview {
@@ -1587,16 +1565,35 @@ pub(super) fn read_message(
                     ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(8.0);
-                    let body = if m.body_text.trim().is_empty() {
-                        "(kein Inhalt)"
-                    } else {
-                        m.body_text.as_str()
-                    };
-                    ui.add(
-                        egui::Label::new(RichText::new(body).size(14.0))
-                            .selectable(true)
-                            .wrap(),
-                    );
+                    // Parsed HTML is cached per message to keep repaints cheap.
+                    let key = egui::Id::new(("html", s.id, m.body_html.len()));
+                    let blocks = ui
+                        .data(|d| d.get_temp::<std::sync::Arc<Vec<html::Block>>>(key))
+                        .unwrap_or_else(|| {
+                            let parsed = if m.body_html.trim().is_empty() {
+                                html::parse(&crate::mail::text_to_html(&m.body_text))
+                            } else {
+                                html::parse(&m.body_html)
+                            };
+                            let parsed = std::sync::Arc::new(parsed);
+                            ui.data_mut(|d| d.insert_temp(key, parsed.clone()));
+                            parsed
+                        });
+                    if blocks.is_empty() {
+                        ui.label(RichText::new("(kein Inhalt)").color(t.text_weak));
+                    } else if let Some(link) =
+                        html::show(ui, &blocks, t.text, t.text_weak, t.accent)
+                    {
+                        match link.strip_prefix("mailto:") {
+                            Some(addr) => acts.push(Act::Compose(ComposeKind::To(
+                                addr.split('?').next().unwrap_or("").to_string(),
+                            ))),
+                            None if link.starts_with("http://") || link.starts_with("https://") => {
+                                super::open_external(&link)
+                            }
+                            None => {}
+                        }
+                    }
                 });
         });
 }

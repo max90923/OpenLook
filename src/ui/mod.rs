@@ -11,6 +11,7 @@ mod backstage;
 mod calendar;
 mod chrome;
 mod compose;
+mod html;
 mod mail;
 mod people;
 mod reminders;
@@ -861,7 +862,7 @@ impl App {
     /// Folder pane with the module switcher at the bottom (Outlook 2016 style).
     fn navigation(&mut self, ctx: &egui::Context) {
         let t = self.t;
-        let width = if self.folder_pane_min { 44.0 } else { 240.0 };
+        let width = if self.folder_pane_min { 44.0 } else { 260.0 };
         egui::SidePanel::left("nav")
             .resizable(!self.folder_pane_min)
             .default_width(width)
@@ -893,10 +894,10 @@ impl App {
                             ] {
                                 let active = self.module == m;
                                 let color = if active { t.accent } else { t.text };
-                                let text = if self.folder_pane_min || ui.available_width() < 200.0 {
+                                let text = if self.folder_pane_min || ui.available_width() < 236.0 {
                                     RichText::new(icon).size(20.0)
                                 } else {
-                                    RichText::new(label).size(13.5)
+                                    RichText::new(label).size(13.0)
                                 };
                                 let r = ui.add(
                                     egui::Button::new(text.color(color).strong_if(active))

@@ -39,6 +39,8 @@ pub struct Composer {
     /// Draft this window was opened from (deleted after sending).
     draft_id: Option<i64>,
     attachments: Vec<NewAttachment>,
+    /// Last selection in the body (char indices) for the format buttons.
+    sel: (usize, usize),
     changed: bool,
     confirm_close: bool,
     address_book: Option<u8>,
@@ -68,6 +70,7 @@ impl Composer {
             confirm_close: false,
             address_book: None,
             attachments: vec![],
+            sel: (0, 0),
         }
     }
 
@@ -78,7 +81,7 @@ impl Composer {
             cc: self.cc.clone(),
             bcc: self.bcc.clone(),
             subject: self.subject.clone(),
-            body_html: crate::mail::text_to_html(&self.body),
+            body_html: super::html::markup_to_html(&self.body),
             importance: self.importance.clone(),
             attachments: self.attachments.clone(),
         }
@@ -226,6 +229,41 @@ impl App {
                         c.cc = resolve_names(&c.cc, &contacts);
                         c.bcc = resolve_names(&c.bcc, &contacts);
                     }
+                });
+                chrome::group(ui, &t, "Basistext", |ui| {
+                    chrome::column(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for (icon, marker, tip) in [
+                                (ph::TEXT_B, "**", "Fett (Strg+B)"),
+                                (ph::TEXT_ITALIC, "*", "Kursiv (Strg+I)"),
+                                (ph::TEXT_UNDERLINE, "__", "Unterstrichen (Strg+U)"),
+                            ] {
+                                if chrome::small(ui, &t, icon, t.text, "", !c.sending)
+                                    .on_hover_text(tip)
+                                    .clicked()
+                                {
+                                    c.sel = super::html::toggle_wrap(&mut c.body, c.sel, marker);
+                                    c.changed = true;
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            if chrome::small(ui, &t, ph::LIST_BULLETS, t.text, "", !c.sending)
+                                .on_hover_text("Aufzählungszeichen")
+                                .clicked()
+                            {
+                                super::html::toggle_list(&mut c.body, c.sel, false);
+                                c.changed = true;
+                            }
+                            if chrome::small(ui, &t, ph::LIST_NUMBERS, t.text, "", !c.sending)
+                                .on_hover_text("Nummerierung")
+                                .clicked()
+                            {
+                                super::html::toggle_list(&mut c.body, c.sel, true);
+                                c.changed = true;
+                            }
+                        });
+                    });
                 });
                 chrome::group(ui, &t, "Einschließen", |ui| {
                     if chrome::large(ui, &t, ph::PAPERCLIP, IC_BLUE, "Datei\nanfügen", !c.sending)
@@ -464,13 +502,30 @@ impl App {
                             .id_salt(("body", wid))
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                let r = ui.add_sized(
-                                    [w - 14.0, h - 8.0],
-                                    egui::TextEdit::multiline(&mut c.body)
-                                        .frame(false)
-                                        .lock_focus(true),
-                                );
-                                c.changed |= r.changed();
+                                let (text, weak) = (t.text, t.text_weak);
+                                let mut layouter =
+                                    |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
+                                        ui.fonts_mut(|f| {
+                                            f.layout_job(super::html::markup_job(
+                                                buf.as_str(),
+                                                14.0,
+                                                text,
+                                                weak,
+                                                wrap,
+                                            ))
+                                        })
+                                    };
+                                let out = egui::TextEdit::multiline(&mut c.body)
+                                    .frame(false)
+                                    .lock_focus(true)
+                                    .min_size(egui::vec2(w - 14.0, h - 8.0))
+                                    .desired_width(w - 14.0)
+                                    .layouter(&mut layouter)
+                                    .show(ui);
+                                if let Some(r) = out.cursor_range {
+                                    c.sel = (r.primary.index, r.secondary.index);
+                                }
+                                c.changed |= out.response.changed();
                             });
                     });
                 });
@@ -480,6 +535,16 @@ impl App {
                     || (i.modifiers.command && i.key_pressed(egui::Key::Enter))
             }) {
                 send = true;
+            }
+            for (key, marker) in [
+                (egui::Key::B, "**"),
+                (egui::Key::I, "*"),
+                (egui::Key::U, "__"),
+            ] {
+                if ui.input(|i| i.modifiers.command && i.key_pressed(key)) {
+                    c.sel = super::html::toggle_wrap(&mut c.body, c.sel, marker);
+                    c.changed = true;
+                }
             }
             if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
                 save = true;

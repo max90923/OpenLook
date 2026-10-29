@@ -21,20 +21,49 @@ pub const RIBBON_H: f32 = 94.0;
 /// icon font as fallback for icons, and its filled variant as family "fill".
 pub fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    for path in [
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-        "/usr/share/fonts/truetype/segoe-ui/segoeui.ttf",
-        "/Library/Fonts/Segoe UI.ttf",
-    ] {
-        if let Ok(bytes) = std::fs::read(path) {
+    // Regular + bold of the same family: Segoe UI (Windows) or a common
+    // system sans on Linux/macOS. Falls back to egui's built-in font.
+    let pairs = [
+        (
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+        ),
+        (
+            "/usr/share/fonts/truetype/segoe-ui/segoeui.ttf",
+            "/usr/share/fonts/truetype/segoe-ui/segoeuib.ttf",
+        ),
+        (
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        ),
+    ];
+    let mut bold = None;
+    for (regular, bold_path) in pairs {
+        if let (Ok(r), Ok(b)) = (std::fs::read(regular), std::fs::read(bold_path)) {
             fonts
                 .font_data
-                .insert("segoe".into(), egui::FontData::from_owned(bytes).into());
+                .insert("ui".into(), egui::FontData::from_owned(r).into());
+            fonts
+                .font_data
+                .insert("ui-bold".into(), egui::FontData::from_owned(b).into());
             fonts
                 .families
                 .entry(egui::FontFamily::Proportional)
                 .or_default()
-                .insert(0, "segoe".into());
+                .insert(0, "ui".into());
+            bold = Some("ui-bold".to_string());
             break;
         }
     }
@@ -43,16 +72,23 @@ pub fn setup_fonts(ctx: &egui::Context) {
         "phosphor-fill".into(),
         egui_phosphor::Variant::Fill.font_data().into(),
     );
+    let proportional = fonts.families[&egui::FontFamily::Proportional].clone();
     let mut fill = vec!["phosphor-fill".to_string()];
-    fill.extend(
-        fonts.families[&egui::FontFamily::Proportional]
-            .iter()
-            .cloned(),
-    );
+    fill.extend(proportional.iter().cloned());
     fonts
         .families
         .insert(egui::FontFamily::Name("fill".into()), fill);
+    // "bold" always exists; without a bold system font it is the regular one.
+    let mut bold_family: Vec<String> = bold.into_iter().collect();
+    bold_family.extend(proportional);
+    fonts
+        .families
+        .insert(egui::FontFamily::Name("bold".into()), bold_family);
     ctx.set_fonts(fonts);
+}
+
+pub fn bold_font(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name("bold".into()))
 }
 
 pub fn fill_font(size: f32) -> egui::FontId {
