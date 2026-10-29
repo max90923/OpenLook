@@ -98,6 +98,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     notes          TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS attachments (
+    id          INTEGER PRIMARY KEY,
+    message_id  INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    mime        TEXT NOT NULL DEFAULT '',
+    size        INTEGER NOT NULL DEFAULT 0,
+    data        BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -368,6 +378,11 @@ pub fn upsert_message(
     folder_id: i64,
     m: &NewMessage,
 ) -> Result<i64> {
+    let existed: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM messages WHERE folder_id = ? AND remote_id = ?)",
+        params![folder_id, m.remote_id],
+        |r| r.get(0),
+    )?;
     c.execute(
         "INSERT INTO messages (account_id, folder_id, remote_id, subject, from_name, from_addr, to_addrs,
                                cc_addrs, date, preview, body_html, body_text, is_read, is_flagged,
@@ -382,11 +397,74 @@ pub fn upsert_message(
             m.has_attachments, if m.importance.is_empty() { "normal" } else { &m.importance },
         ],
     )?;
-    Ok(c.query_row(
+    let id: i64 = c.query_row(
         "SELECT id FROM messages WHERE folder_id = ? AND remote_id = ?",
         params![folder_id, m.remote_id],
         |r| r.get(0),
-    )?)
+    )?;
+    if !existed && !m.attachments.is_empty() {
+        replace_attachments(c, id, &m.attachments)?;
+    }
+    Ok(id)
+}
+
+pub fn replace_attachments(c: &Connection, message_id: i64, list: &[NewAttachment]) -> Result<()> {
+    c.execute("DELETE FROM attachments WHERE message_id = ?", [message_id])?;
+    for a in list {
+        c.execute(
+            "INSERT INTO attachments (message_id, name, mime, size, data) VALUES (?, ?, ?, ?, ?)",
+            params![message_id, a.name, a.mime, a.data.len() as i64, a.data],
+        )?;
+    }
+    if !list.is_empty() {
+        c.execute(
+            "UPDATE messages SET has_attachments = 1 WHERE id = ?",
+            [message_id],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn list_attachments(c: &Connection, message_id: i64) -> Result<Vec<Attachment>> {
+    let mut st = c.prepare(
+        "SELECT id, message_id, name, mime, size FROM attachments WHERE message_id = ? ORDER BY id",
+    )?;
+    let rows = st
+        .query_map([message_id], |r| {
+            Ok(Attachment {
+                id: r.get(0)?,
+                message_id: r.get(1)?,
+                name: r.get(2)?,
+                mime: r.get(3)?,
+                size: r.get(4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+/// All attachments of a message including their content (for forwarding).
+pub fn attachments_with_data(c: &Connection, message_id: i64) -> Result<Vec<NewAttachment>> {
+    let mut st =
+        c.prepare("SELECT name, mime, data FROM attachments WHERE message_id = ? ORDER BY id")?;
+    let rows = st
+        .query_map([message_id], |r| {
+            Ok(NewAttachment {
+                name: r.get(0)?,
+                mime: r.get(1)?,
+                data: r.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+pub fn attachment_data(c: &Connection, id: i64) -> Result<Vec<u8>> {
+    Ok(
+        c.query_row("SELECT data FROM attachments WHERE id = ?", [id], |r| {
+            r.get(0)
+        })?,
+    )
 }
 
 /// Remove messages in a folder whose remote id is not in `keep`.
@@ -773,6 +851,36 @@ mod tests {
 
         prune_messages(&c, inbox, &[]).unwrap();
         assert!(get_message(&c, id).unwrap().is_none());
+    }
+
+    #[test]
+    fn attachments_roundtrip() {
+        let c = mem();
+        let acc = insert_account(&c, AccountKind::Local, "T", "t@x.de", "{}").unwrap();
+        let f = upsert_folder(&c, acc, "inbox", "Posteingang", "inbox").unwrap();
+        let m = NewMessage {
+            remote_id: "1".into(),
+            attachments: vec![NewAttachment {
+                name: "a.txt".into(),
+                mime: "text/plain".into(),
+                data: b"hallo".to_vec(),
+            }],
+            ..Default::default()
+        };
+        let id = upsert_message(&c, acc, f, &m).unwrap();
+        // A re-sync must not duplicate attachments.
+        upsert_message(&c, acc, f, &m).unwrap();
+        let list = list_attachments(&c, id).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].size, 5);
+        assert_eq!(attachment_data(&c, list[0].id).unwrap(), b"hallo");
+        assert!(
+            get_message(&c, id)
+                .unwrap()
+                .unwrap()
+                .summary
+                .has_attachments
+        );
     }
 
     #[test]

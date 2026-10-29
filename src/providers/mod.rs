@@ -6,12 +6,10 @@ pub mod graph;
 pub mod imap;
 
 use anyhow::{anyhow, bail, Result};
-use serde::Deserialize;
 
 use crate::{db, mail, models::*, state::AppState};
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Default)]
 pub struct OutgoingMail {
     pub account_id: i64,
     pub to: String,
@@ -21,11 +19,12 @@ pub struct OutgoingMail {
     pub body_html: String,
     /// low | normal | high
     pub importance: String,
+    pub attachments: Vec<NewAttachment>,
 }
 
 impl OutgoingMail {
     pub fn to_lettre(&self, from: &str) -> Result<lettre::Message> {
-        use lettre::message::{header, Mailbox};
+        use lettre::message::{header, Attachment, Mailbox, MultiPart, SinglePart};
         let mut b = lettre::Message::builder()
             .from(from.parse::<Mailbox>()?)
             .subject(&self.subject);
@@ -44,8 +43,18 @@ impl OutgoingMail {
                 self.importance.clone(),
             ));
         }
-        Ok(b.header(header::ContentType::TEXT_HTML)
-            .body(self.body_html.clone())?)
+        if self.attachments.is_empty() {
+            return Ok(b
+                .header(header::ContentType::TEXT_HTML)
+                .body(self.body_html.clone())?);
+        }
+        let mut parts = MultiPart::mixed().singlepart(SinglePart::html(self.body_html.clone()));
+        for a in &self.attachments {
+            let ct = header::ContentType::parse(&a.mime)
+                .unwrap_or(header::ContentType::parse("application/octet-stream")?);
+            parts = parts.singlepart(Attachment::new(a.name.clone()).body(a.data.clone(), ct));
+        }
+        Ok(b.multipart(parts)?)
     }
 }
 
@@ -225,6 +234,8 @@ pub async fn send(state: &AppState, m: &OutgoingMail) -> Result<()> {
                 body_text: text,
                 is_read: true,
                 importance: m.importance.clone(),
+                has_attachments: !m.attachments.is_empty(),
+                attachments: m.attachments.clone(),
                 ..Default::default()
             },
         )?;
@@ -258,9 +269,32 @@ pub fn save_draft(state: &AppState, m: &OutgoingMail) -> Result<i64> {
             body_html: m.body_html.clone(),
             body_text: text,
             is_read: true,
+            has_attachments: !m.attachments.is_empty(),
+            attachments: m.attachments.clone(),
             ..Default::default()
         },
     )
+}
+
+/// Make sure the attachments of a message are in the local cache
+/// (Microsoft Graph only delivers them on request).
+pub async fn ensure_attachments(state: &AppState, message_id: i64) -> Result<()> {
+    let (acc, has, cached) = {
+        let c = state.db();
+        let m =
+            db::get_message(&c, message_id)?.ok_or_else(|| anyhow!("Nachricht nicht gefunden"))?;
+        (
+            m.summary.account_id,
+            m.summary.has_attachments,
+            !db::list_attachments(&c, message_id)?.is_empty(),
+        )
+    };
+    if !has || cached || kind_of(state, acc)? != AccountKind::Graph {
+        return Ok(());
+    }
+    let (rid, _) = db::message_remote(&state.db(), message_id)?;
+    let list = graph::load_attachments(state, acc, &rid).await?;
+    db::replace_attachments(&state.db(), message_id, &list)
 }
 
 // ---------------------------------------------------------------- calendar / contacts / tasks
@@ -394,11 +428,34 @@ mod tests {
             body_html: "<p>Hallo</p>".into(),
             ..Default::default()
         };
+        let m = OutgoingMail {
+            attachments: vec![NewAttachment {
+                name: "a.txt".into(),
+                mime: "text/plain".into(),
+                data: b"x".to_vec(),
+            }],
+            ..m
+        };
         send(&state, &m).await.unwrap();
         let sent = db::folder_by_role(&state.db(), acc, "sent")
             .unwrap()
             .unwrap();
         assert_eq!(sent.total, 1);
+        let msgs = db::list_messages(
+            &state.db(),
+            &db::MessageQuery {
+                folder_id: Some(sent.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            db::list_attachments(&state.db(), msgs[0].id).unwrap().len(),
+            1
+        );
+        // The same mail as MIME carries the attachment.
+        let raw = String::from_utf8(m.to_lettre("me@x.de").unwrap().formatted()).unwrap();
+        assert!(raw.contains("multipart/mixed") && raw.contains("a.txt"));
         assert!(send(
             &state,
             &OutgoingMail {

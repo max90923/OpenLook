@@ -72,6 +72,16 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
                 } else {
                     "normal".into()
                 },
+                // The invoice comes with a document, like the real thing.
+                attachments: if i == 2 {
+                    vec![NewAttachment {
+                        name: "Rechnung_2026-1042.txt".into(),
+                        mime: "text/plain".into(),
+                        data: "Rechnung 2026-1042\nLeistungszeitraum: Oktober 2026\nBetrag: 1.190,00 EUR\n".as_bytes().to_vec(),
+                    }]
+                } else {
+                    vec![]
+                },
                 ..Default::default()
             },
         )?;

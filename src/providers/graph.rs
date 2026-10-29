@@ -5,6 +5,7 @@
 //! and pass its client id via `MAILCRAFT_GRAPH_CLIENT_ID`.
 
 use anyhow::{anyhow, bail, Context, Result};
+use base64::Engine;
 use reqwest::{Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -332,6 +333,7 @@ async fn sync_mail(state: &AppState, account_id: i64) -> Result<()> {
                 is_flagged: m["flag"]["flagStatus"].as_str() == Some("flagged"),
                 has_attachments: m["hasAttachments"].as_bool().unwrap_or(false),
                 importance: s(&m["importance"]),
+                attachments: vec![],
             };
             let id = db::upsert_message(&state.db(), account_id, fid, &nm)?;
             let cats: Vec<String> = m["categories"]
@@ -551,11 +553,42 @@ pub async fn send(state: &AppState, account_id: i64, m: &OutgoingMail) -> Result
             "ccRecipients": to_recipients(&m.cc),
             "bccRecipients": to_recipients(&m.bcc),
             "importance": if m.importance.is_empty() { "normal" } else { &m.importance },
+            "attachments": m.attachments.iter().map(|a| json!({
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": a.name,
+                "contentType": a.mime,
+                "contentBytes": base64::engine::general_purpose::STANDARD.encode(&a.data),
+            })).collect::<Vec<_>>(),
         },
         "saveToSentItems": true,
     });
     call(state, account_id, Method::POST, "/me/sendMail", Some(body)).await?;
     Ok(())
+}
+
+/// Download the file attachments of a message.
+pub async fn load_attachments(
+    state: &AppState,
+    account_id: i64,
+    remote_id: &str,
+) -> Result<Vec<NewAttachment>> {
+    let items = get_all(
+        state,
+        account_id,
+        &format!("/me/messages/{remote_id}/attachments"),
+    )
+    .await?;
+    Ok(items
+        .iter()
+        .filter(|a| a["@odata.type"] == "#microsoft.graph.fileAttachment")
+        .map(|a| NewAttachment {
+            name: s(&a["name"]),
+            mime: s(&a["contentType"]),
+            data: base64::engine::general_purpose::STANDARD
+                .decode(s(&a["contentBytes"]))
+                .unwrap_or_default(),
+        })
+        .collect())
 }
 
 fn event_to_graph(e: &Event) -> Value {

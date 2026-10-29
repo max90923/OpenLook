@@ -38,6 +38,7 @@ pub struct Composer {
     importance: String,
     /// Draft this window was opened from (deleted after sending).
     draft_id: Option<i64>,
+    attachments: Vec<NewAttachment>,
     changed: bool,
     confirm_close: bool,
     address_book: Option<u8>,
@@ -66,6 +67,7 @@ impl Composer {
             changed: false,
             confirm_close: false,
             address_book: None,
+            attachments: vec![],
         }
     }
 
@@ -78,6 +80,7 @@ impl Composer {
             subject: self.subject.clone(),
             body_html: crate::mail::text_to_html(&self.body),
             importance: self.importance.clone(),
+            attachments: self.attachments.clone(),
         }
     }
 }
@@ -155,6 +158,8 @@ impl App {
             (ComposeKind::Forward(_), Some(m)) => {
                 c.subject = prefixed("WG:", &m.summary.subject);
                 c.body = quote(&m);
+                c.attachments =
+                    db::attachments_with_data(&self.st.db(), m.summary.id).unwrap_or_default();
             }
             (ComposeKind::EditDraft(id), Some(m)) => {
                 c.to = m.to.clone();
@@ -166,6 +171,7 @@ impl App {
                 };
                 c.body = m.body_text.clone();
                 c.draft_id = Some(id);
+                c.attachments = db::attachments_with_data(&self.st.db(), id).unwrap_or_default();
             }
             _ => {}
         }
@@ -222,6 +228,29 @@ impl App {
                     }
                 });
                 chrome::group(ui, &t, "Einschließen", |ui| {
+                    if chrome::large(ui, &t, ph::PAPERCLIP, IC_BLUE, "Datei\nanfügen", !c.sending)
+                        .clicked()
+                    {
+                        if let Some(files) = rfd::FileDialog::new()
+                            .set_title("Datei einfügen")
+                            .pick_files()
+                        {
+                            for f in files {
+                                match std::fs::read(&f) {
+                                    Ok(data) => c.attachments.push(NewAttachment {
+                                        name: f
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().into_owned())
+                                            .unwrap_or_else(|| "Anlage".into()),
+                                        mime: mime_for(&f),
+                                        data,
+                                    }),
+                                    Err(e) => tracing::warn!("{}: {e}", f.display()),
+                                }
+                                c.changed = true;
+                            }
+                        }
+                    }
                     if chrome::large(
                         ui,
                         &t,
@@ -405,6 +434,30 @@ impl App {
                             );
                             c.changed |= r.changed();
                         });
+                        if !c.attachments.is_empty() {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.add_sized([136.0, 24.0], egui::Label::new("Angefügt"));
+                                let mut remove = None;
+                                for (i, a) in c.attachments.iter().enumerate() {
+                                    let r = ui.add(egui::Button::new((
+                                        RichText::new(ph::PAPERCLIP).color(IC_BLUE),
+                                        format!(
+                                            "{} ({})",
+                                            a.name,
+                                            mail::human_size(a.data.len() as i64)
+                                        ),
+                                        RichText::new(ph::X).color(t.text_weak),
+                                    )));
+                                    if r.on_hover_text("Anlage entfernen").clicked() {
+                                        remove = Some(i);
+                                    }
+                                }
+                                if let Some(i) = remove {
+                                    c.attachments.remove(i);
+                                    c.changed = true;
+                                }
+                            });
+                        }
                         ui.add_space(6.0);
                         let (w, h) = (ui.available_width(), ui.available_height().max(200.0));
                         egui::ScrollArea::vertical()
@@ -562,6 +615,7 @@ impl App {
             return true;
         };
         let s = m.summary.clone();
+        let atts = db::list_attachments(&self.st.db(), id).unwrap_or_default();
         let title = format!("{} - Nachricht", s.subject);
         let folders: Vec<Folder> = self
             .data
@@ -686,7 +740,7 @@ impl App {
                     });
                 });
             });
-            mail::read_message(ui, &t, &m, false, &mut acts);
+            mail::read_message(ui, &t, &m, &atts, false, &mut acts);
         });
         // Delete/move closes the window, like Outlook.
         if acts
@@ -698,6 +752,34 @@ impl App {
         self.mail_apply(acts);
         close
     }
+}
+
+/// MIME type from the file extension (for attachments).
+fn mime_for(path: &std::path::Path) -> String {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "htm" | "html" => "text/html",
+        "zip" => "application/zip",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "ics" => "text/calendar",
+        _ => "application/octet-stream",
+    }
+    .into()
 }
 
 /// Replace names without address by the matching contact ("Namen überprüfen").

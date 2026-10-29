@@ -114,6 +114,25 @@ pub struct NewMessage {
     pub is_flagged: bool,
     pub has_attachments: bool,
     pub importance: String,
+    pub attachments: Vec<NewAttachment>,
+}
+
+/// File attached to a message (incoming or outgoing).
+#[derive(Debug, Clone, Default)]
+pub struct NewAttachment {
+    pub name: String,
+    pub mime: String,
+    pub data: Vec<u8>,
+}
+
+/// Stored attachment without its content.
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    pub id: i64,
+    pub message_id: i64,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

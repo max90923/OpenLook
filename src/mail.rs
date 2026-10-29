@@ -1,6 +1,8 @@
 //! MIME helpers shared by the providers.
 
-use mail_parser::{Address, MessageParser};
+use mail_parser::{Address, MessageParser, MimeHeaders};
+
+use crate::models::NewAttachment;
 
 use crate::models::NewMessage;
 
@@ -192,6 +194,21 @@ pub fn parse_rfc822(remote_id: String, raw: &[u8]) -> NewMessage {
         },
         body_text: text_for_preview,
         has_attachments: msg.attachment_count() > 0,
+        attachments: msg
+            .attachments()
+            .enumerate()
+            .map(|(i, a)| NewAttachment {
+                name: a
+                    .attachment_name()
+                    .map(String::from)
+                    .unwrap_or_else(|| format!("Anlage {}", i + 1)),
+                mime: a
+                    .content_type()
+                    .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or("octet-stream")))
+                    .unwrap_or_else(|| "application/octet-stream".into()),
+                data: a.contents().to_vec(),
+            })
+            .collect(),
         importance: importance.into(),
         ..Default::default()
     }
@@ -221,6 +238,17 @@ mod tests {
             strip_html("<p>Hallo</p><p>Welt<br>zwei</p>"),
             "Hallo\n\nWelt\nzwei"
         );
+    }
+
+    #[test]
+    fn parses_attachments() {
+        let raw = b"From: a@x.de\r\nSubject: Anlage\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=XX\r\n\r\n--XX\r\nContent-Type: text/plain\r\n\r\nText\r\n--XX\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"r.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nSGFsbG8=\r\n--XX--\r\n";
+        let m = parse_rfc822("1".into(), raw);
+        assert!(m.has_attachments);
+        assert_eq!(m.attachments.len(), 1);
+        assert_eq!(m.attachments[0].name, "r.pdf");
+        assert_eq!(m.attachments[0].mime, "application/pdf");
+        assert_eq!(m.attachments[0].data, b"Hallo");
     }
 
     #[test]

@@ -43,6 +43,7 @@ pub struct MailView {
     messages: Vec<MessageSummary>,
     selected: Option<i64>,
     current: Option<Message>,
+    atts: Vec<Attachment>,
     collapsed: HashSet<&'static str>,
     favorites_closed: bool,
     closed_accounts: HashSet<i64>,
@@ -68,6 +69,9 @@ pub(super) enum Act {
     Compose(ComposeKind),
     MarkFolderRead(i64),
     OpenInBrowser(i64),
+    OpenAttachment(Attachment),
+    SaveAttachment(Attachment),
+    SaveAllAttachments(i64),
     Toast(String),
 }
 
@@ -116,6 +120,12 @@ impl App {
             .mail
             .selected
             .and_then(|id| db::get_message(&c, id).ok().flatten());
+        self.mail.atts = self
+            .mail
+            .current
+            .as_ref()
+            .and_then(|m| db::list_attachments(&c, m.summary.id).ok())
+            .unwrap_or_default();
         if self.mail.current.is_none() {
             self.mail.selected = None;
         }
@@ -133,6 +143,17 @@ impl App {
                 Act::Select(id) => {
                     self.mail.selected = Some(id);
                     self.reload_messages();
+                    let missing = self
+                        .mail
+                        .current
+                        .as_ref()
+                        .is_some_and(|m| m.summary.has_attachments)
+                        && self.mail.atts.is_empty();
+                    if missing {
+                        self.spawn(None, move |st, _| async move {
+                            providers::ensure_attachments(&st, id).await
+                        });
+                    }
                     let unread = self
                         .mail
                         .current
@@ -237,6 +258,56 @@ impl App {
                         match std::fs::write(&path, html) {
                             Ok(()) => super::open_external(&path.to_string_lossy()),
                             Err(e) => self.toast(format!("{e}"), true),
+                        }
+                    }
+                }
+                Act::OpenAttachment(a) => {
+                    let res = db::attachment_data(&self.st.db(), a.id).and_then(|data| {
+                        let dir = std::env::temp_dir()
+                            .join(format!("mailcraft-anlagen-{}", a.message_id));
+                        std::fs::create_dir_all(&dir)?;
+                        let path = dir.join(safe_file_name(&a.name));
+                        std::fs::write(&path, data)?;
+                        Ok(path)
+                    });
+                    match res {
+                        Ok(path) => super::open_external(&path.to_string_lossy()),
+                        Err(e) => {
+                            self.toast(format!("Anlage konnte nicht geöffnet werden: {e:#}"), true)
+                        }
+                    }
+                }
+                Act::SaveAttachment(a) => {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_title("Anlage speichern")
+                        .set_file_name(safe_file_name(&a.name))
+                        .save_file()
+                    {
+                        let res = db::attachment_data(&self.st.db(), a.id)
+                            .and_then(|d| Ok(std::fs::write(&path, d)?));
+                        match res {
+                            Ok(()) => self.toast(format!("Gespeichert: {}", path.display()), false),
+                            Err(e) => self.toast(format!("{e:#}"), true),
+                        }
+                    }
+                }
+                Act::SaveAllAttachments(id) => {
+                    if let Some(dir) = rfd::FileDialog::new()
+                        .set_title("Alle Anlagen speichern")
+                        .pick_folder()
+                    {
+                        let res = db::attachments_with_data(&self.st.db(), id).and_then(|list| {
+                            for a in &list {
+                                std::fs::write(dir.join(safe_file_name(&a.name)), &a.data)?;
+                            }
+                            Ok(list.len())
+                        });
+                        match res {
+                            Ok(n) => self.toast(
+                                format!("{n} Anlage(n) gespeichert in {}", dir.display()),
+                                false,
+                            ),
+                            Err(e) => self.toast(format!("{e:#}"), true),
                         }
                     }
                 }
@@ -1329,7 +1400,7 @@ impl App {
             });
             return;
         };
-        read_message(ui, &self.t, m, true, acts);
+        read_message(ui, &self.t, m, &self.mail.atts, true, acts);
     }
 }
 
@@ -1338,6 +1409,7 @@ pub(super) fn read_message(
     ui: &mut egui::Ui,
     t: &super::theme::Theme,
     m: &Message,
+    atts: &[Attachment],
     actions: bool,
     acts: &mut Vec<Act>,
 ) {
@@ -1472,13 +1544,45 @@ pub(super) fn read_message(
                                 ui.label(RichText::new(c).size(12.0).color(egui::Color32::WHITE));
                             });
                     }
-                    if s.has_attachments {
-                        info(
-                            ui,
-                            ph::PAPERCLIP,
-                            t.text_weak,
-                            "Diese Nachricht enthält Anlagen – zum Öffnen \"Im Browser anzeigen\".",
-                        );
+                    if !atts.is_empty() {
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            for a in atts {
+                                let r = ui.add(egui::Button::new((
+                                    RichText::new(file_icon(&a.mime)).color(IC_BLUE).size(18.0),
+                                    format!("{}\n{}", a.name, human_size(a.size)),
+                                )));
+                                if r.double_clicked() {
+                                    acts.push(Act::OpenAttachment(a.clone()));
+                                }
+                                r.on_hover_text(
+                                    "Doppelklick zum Öffnen, Rechtsklick für weitere Optionen",
+                                )
+                                .context_menu(|ui| {
+                                    if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Öffnen") {
+                                        acts.push(Act::OpenAttachment(a.clone()));
+                                    }
+                                    if chrome::menu_item(
+                                        ui,
+                                        ph::FLOPPY_DISK,
+                                        IC_BLUE,
+                                        "Speichern unter…",
+                                    ) {
+                                        acts.push(Act::SaveAttachment(a.clone()));
+                                    }
+                                    if chrome::menu_item(
+                                        ui,
+                                        ph::FLOPPY_DISK,
+                                        IC_BLUE,
+                                        "Alle Anlagen speichern…",
+                                    ) {
+                                        acts.push(Act::SaveAllAttachments(a.message_id));
+                                    }
+                                });
+                            }
+                        });
+                    } else if s.has_attachments {
+                        info(ui, ph::PAPERCLIP, t.text_weak, "Anlagen werden geladen …");
                     }
                     ui.add_space(8.0);
                     ui.separator();
@@ -1495,6 +1599,45 @@ pub(super) fn read_message(
                     );
                 });
         });
+}
+
+fn file_icon(mime: &str) -> &'static str {
+    match mime.split('/').next().unwrap_or("") {
+        "image" => ph::FILE_IMAGE,
+        "text" => ph::FILE_TEXT,
+        "audio" => ph::FILE_AUDIO,
+        "video" => ph::FILE_VIDEO,
+        _ if mime.contains("pdf") => ph::FILE_PDF,
+        _ if mime.contains("zip") => ph::FILE_ZIP,
+        _ => ph::FILE,
+    }
+}
+
+pub(super) fn human_size(bytes: i64) -> String {
+    match bytes {
+        b if b < 1024 => format!("{b} Bytes"),
+        b if b < 1024 * 1024 => format!("{} KB", b / 1024),
+        b => format!("{:.1} MB", b as f64 / 1024.0 / 1024.0),
+    }
+}
+
+/// Strip path separators and other characters that are invalid in file names.
+pub(super) fn safe_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if r#"/\:*?"<>|"#.contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if cleaned.trim().is_empty() {
+        "Anlage".into()
+    } else {
+        cleaned
+    }
 }
 
 fn sender(m: &MessageSummary) -> &str {
@@ -1618,6 +1761,13 @@ mod tests {
     fn groups_today() {
         assert_eq!(date_group(&crate::mail::now_utc()), "Heute");
         assert_eq!(date_group("2001-01-01T00:00:00Z"), "Älter");
+    }
+
+    #[test]
+    fn sanitizes_file_names() {
+        assert_eq!(safe_file_name("../a/b:c.txt"), ".._a_b_c.txt");
+        assert_eq!(safe_file_name("  "), "Anlage");
+        assert_eq!(human_size(2048), "2 KB");
     }
 
     #[test]
