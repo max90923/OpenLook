@@ -148,4 +148,33 @@ mod tests {
             forget(id);
         }
     }
+
+    /// Needs a running credential store (e.g. gnome-keyring in a D-Bus
+    /// session). Run with `cargo test -- --ignored keyring_roundtrip`.
+    #[test]
+    #[ignore]
+    fn keyring_roundtrip() {
+        let state = AppState::in_memory();
+        let id = db::insert_account(
+            &state.db(),
+            AccountKind::Graph,
+            "T",
+            "t@x.de",
+            r#"{"access_token":"a1","refresh_token":"r1","expires_at":0}"#,
+        )
+        .unwrap();
+        assert!(secure(&state, id).unwrap(), "Schlüsselbund nicht verfügbar");
+        let raw = db::account_config(&state.db(), id).unwrap();
+        assert!(
+            !raw.contains("r1") && !raw.contains("a1"),
+            "Geheimnisse noch in der Datenbank: {raw}"
+        );
+        let full = config(&state, id).unwrap();
+        assert!(full.contains("r1") && full.contains("a1"));
+        forget(id);
+        assert!(
+            config(&state, id).is_err(),
+            "nach dem Entfernen dürfen keine Daten mehr da sein"
+        );
+    }
 }

@@ -13,6 +13,7 @@ mod chrome;
 mod compose;
 mod html;
 mod mail;
+mod notes;
 mod people;
 mod reminders;
 mod rules_ui;
@@ -99,6 +100,8 @@ pub enum Module {
     Calendar,
     People,
     Tasks,
+    Notes,
+    Journal,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -188,6 +191,8 @@ pub enum Win {
     AddAccount(backstage::AddAccountWin),
     Rules(rules_ui::RulesWin),
     AutoReply(backstage::AutoReplyWin),
+    Note(notes::NoteEditor),
+    Journal(notes::JournalEditor),
 }
 
 pub struct WinEntry {
@@ -246,6 +251,7 @@ pub struct App {
     cal: calendar::CalendarView,
     people: people::PeopleView,
     tasks: tasks::TasksView,
+    notes: notes::NotesView,
     reminders: reminders::Reminders,
     windows: Vec<WinEntry>,
     next_window: u64,
@@ -288,6 +294,7 @@ impl App {
             cal: calendar::CalendarView::new(),
             people: Default::default(),
             tasks: Default::default(),
+            notes: Default::default(),
             reminders: Default::default(),
             windows: vec![],
             next_window: 1,
@@ -433,6 +440,7 @@ impl App {
         }
         self.reload_messages();
         self.reload_events();
+        self.reload_notes();
         self.dirty = false;
     }
 
@@ -507,6 +515,8 @@ impl App {
             Module::Calendar => "Kalender".into(),
             Module::People => "Kontakte".into(),
             Module::Tasks => "Aufgaben".into(),
+            Module::Notes => "Notizen".into(),
+            Module::Journal => "Journal".into(),
         };
         format!("{place} - MailCraft")
     }
@@ -604,6 +614,8 @@ impl App {
                         Module::Calendar => self.calendar_ribbon(ui),
                         Module::People => self.people_ribbon(ui),
                         Module::Tasks => self.tasks_ribbon(ui),
+                        Module::Notes => self.notes_ribbon(ui),
+                        Module::Journal => self.journal_ribbon(ui),
                     });
                 }
             });
@@ -816,6 +828,12 @@ impl App {
                             ui.add_space(14.0);
                             ui.label(small(format!("Nicht erledigt: {open}")));
                         }
+                        Module::Notes => {
+                            ui.label(small(format!("Elemente: {}", self.notes.notes.len())));
+                        }
+                        Module::Journal => {
+                            ui.label(small(format!("Elemente: {}", self.notes.journal.len())));
+                        }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Zoom slider like Office.
@@ -926,6 +944,26 @@ impl App {
                                     self.switch_module(m);
                                 }
                             }
+                            // Outlook keeps Notizen and Journal behind "···".
+                            let more_active =
+                                matches!(self.module, Module::Notes | Module::Journal);
+                            let r = ui.add(
+                                egui::Button::new(
+                                    RichText::new(ph::DOTS_THREE)
+                                        .size(18.0)
+                                        .color(if more_active { t.accent } else { t.text }),
+                                )
+                                .frame(false),
+                            );
+                            chrome::menu(&r, |ui| {
+                                if chrome::menu_item(ui, ph::NOTE, IC_YELLOW, "Notizen (Strg+5)") {
+                                    self.switch_module(Module::Notes);
+                                }
+                                if chrome::menu_item(ui, ph::BOOK_OPEN, IC_BLUE, "Journal (Strg+8)")
+                                {
+                                    self.switch_module(Module::Journal);
+                                }
+                            });
                         });
                     });
                 if self.folder_pane_min {
@@ -961,6 +999,8 @@ impl App {
                     Module::Calendar => self.calendar_nav(ui),
                     Module::People => self.people_nav(ui),
                     Module::Tasks => self.tasks_nav(ui),
+                    Module::Notes => self.notes_nav(ui),
+                    Module::Journal => self.journal_nav(ui),
                 }
             });
         for (k, m) in [
@@ -968,6 +1008,8 @@ impl App {
             (egui::Key::Num2, Module::Calendar),
             (egui::Key::Num3, Module::People),
             (egui::Key::Num4, Module::Tasks),
+            (egui::Key::Num5, Module::Notes),
+            (egui::Key::Num8, Module::Journal),
         ] {
             if ctx.input(|i| pressed(i, k, true, false)) {
                 self.switch_module(m);
@@ -979,6 +1021,8 @@ impl App {
                 Module::Calendar => self.new_event_now(),
                 Module::People => self.new_contact(),
                 Module::Tasks => self.new_task(),
+                Module::Notes => self.new_note(),
+                Module::Journal => self.new_journal_entry("Telefonanruf"),
             }
         }
     }
@@ -997,6 +1041,8 @@ impl App {
                 Win::AddAccount(a) => self.add_account_window(ctx, vid, a),
                 Win::Rules(r) => self.rules_window(ctx, vid, r),
                 Win::AutoReply(a) => self.auto_reply_window(ctx, vid, a),
+                Win::Note(n) => self.note_window(ctx, vid, n),
+                Win::Journal(j) => self.journal_window(ctx, vid, j),
             };
             if close {
                 closed.push(w.id);
@@ -1030,6 +1076,8 @@ impl eframe::App for App {
                     Module::Calendar => self.calendar_ui(ui),
                     Module::People => self.people_ui(ui),
                     Module::Tasks => self.tasks_ui(ui),
+                    Module::Notes => self.notes_ui(ui),
+                    Module::Journal => self.journal_ui(ui),
                 });
         }
         self.windows_ui(ctx);

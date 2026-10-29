@@ -196,3 +196,28 @@ pub struct Task {
     pub my_day: bool,
     pub notes: String,
 }
+
+/// Outlook "Notiz" (sticky note).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Note {
+    pub id: i64,
+    pub body: String,
+    /// yellow | blue | green | pink | white
+    pub color: String,
+    /// RFC 3339 (UTC)
+    pub modified: String,
+}
+
+/// Outlook "Journaleintrag".
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JournalEntry {
+    pub id: i64,
+    /// Telefonanruf, Besprechung, E-Mail-Nachricht, Aufgabe, Dokument, Notiz, Gespräch
+    pub kind: String,
+    pub subject: String,
+    pub company: String,
+    /// RFC 3339 (UTC)
+    pub start: String,
+    pub minutes: i64,
+    pub notes: String,
+}

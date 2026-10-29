@@ -108,6 +108,23 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
 
+CREATE TABLE IF NOT EXISTS notes (
+    id       INTEGER PRIMARY KEY,
+    body     TEXT NOT NULL DEFAULT '',
+    color    TEXT NOT NULL DEFAULT 'yellow',
+    modified TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS journal (
+    id      INTEGER PRIMARY KEY,
+    kind    TEXT NOT NULL DEFAULT 'Telefonanruf',
+    subject TEXT NOT NULL DEFAULT '',
+    company TEXT NOT NULL DEFAULT '',
+    start   TEXT NOT NULL,
+    minutes INTEGER NOT NULL DEFAULT 0,
+    notes   TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -818,6 +835,86 @@ pub fn clear_remote_items(c: &Connection, table: &str, account_id: i64) -> Resul
     Ok(())
 }
 
+// ---------------------------------------------------------------- notes & journal
+
+pub fn list_notes(c: &Connection) -> Result<Vec<Note>> {
+    let mut st = c.prepare("SELECT id, body, color, modified FROM notes ORDER BY modified DESC")?;
+    let rows = st
+        .query_map([], |r| {
+            Ok(Note {
+                id: r.get(0)?,
+                body: r.get(1)?,
+                color: r.get(2)?,
+                modified: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+pub fn save_note(c: &Connection, n: &Note) -> Result<i64> {
+    let now = crate::mail::now_utc();
+    if n.id > 0 {
+        c.execute(
+            "UPDATE notes SET body = ?, color = ?, modified = ? WHERE id = ?",
+            params![n.body, n.color, now, n.id],
+        )?;
+        Ok(n.id)
+    } else {
+        c.execute(
+            "INSERT INTO notes (body, color, modified) VALUES (?, ?, ?)",
+            params![n.body, n.color, now],
+        )?;
+        Ok(c.last_insert_rowid())
+    }
+}
+
+pub fn delete_note(c: &Connection, id: i64) -> Result<()> {
+    c.execute("DELETE FROM notes WHERE id = ?", [id])?;
+    Ok(())
+}
+
+pub fn list_journal(c: &Connection) -> Result<Vec<JournalEntry>> {
+    let mut st = c.prepare(
+        "SELECT id, kind, subject, company, start, minutes, notes FROM journal ORDER BY start DESC",
+    )?;
+    let rows = st
+        .query_map([], |r| {
+            Ok(JournalEntry {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                subject: r.get(2)?,
+                company: r.get(3)?,
+                start: r.get(4)?,
+                minutes: r.get(5)?,
+                notes: r.get(6)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+pub fn save_journal(c: &Connection, j: &JournalEntry) -> Result<i64> {
+    if j.id > 0 {
+        c.execute(
+            "UPDATE journal SET kind=?, subject=?, company=?, start=?, minutes=?, notes=? WHERE id=?",
+            params![j.kind, j.subject, j.company, j.start, j.minutes, j.notes, j.id],
+        )?;
+        Ok(j.id)
+    } else {
+        c.execute(
+            "INSERT INTO journal (kind, subject, company, start, minutes, notes) VALUES (?, ?, ?, ?, ?, ?)",
+            params![j.kind, j.subject, j.company, j.start, j.minutes, j.notes],
+        )?;
+        Ok(c.last_insert_rowid())
+    }
+}
+
+pub fn delete_journal(c: &Connection, id: i64) -> Result<()> {
+    c.execute("DELETE FROM journal WHERE id = ?", [id])?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------- settings
 
 pub fn get_settings(c: &Connection) -> Result<serde_json::Map<String, serde_json::Value>> {
@@ -925,6 +1022,47 @@ mod tests {
                 .summary
                 .has_attachments
         );
+    }
+
+    #[test]
+    fn notes_and_journal_roundtrip() {
+        let c = mem();
+        let id = save_note(
+            &c,
+            &Note {
+                body: "Einkaufen\nMilch".into(),
+                color: "yellow".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        save_note(
+            &c,
+            &Note {
+                id,
+                body: "Einkaufen\nBrot".into(),
+                color: "blue".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let notes = list_notes(&c).unwrap();
+        assert_eq!((notes.len(), notes[0].color.as_str()), (1, "blue"));
+        assert!(!notes[0].modified.is_empty());
+        delete_note(&c, id).unwrap();
+        assert!(list_notes(&c).unwrap().is_empty());
+
+        let j = JournalEntry {
+            kind: "Telefonanruf".into(),
+            subject: "Anruf Kunde".into(),
+            start: "2026-10-29T10:00:00Z".into(),
+            minutes: 12,
+            ..Default::default()
+        };
+        let jid = save_journal(&c, &j).unwrap();
+        assert_eq!(list_journal(&c).unwrap()[0], JournalEntry { id: jid, ..j });
+        delete_journal(&c, jid).unwrap();
+        assert!(list_journal(&c).unwrap().is_empty());
     }
 
     #[test]
