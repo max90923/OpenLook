@@ -59,7 +59,9 @@ fn main() -> Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("MailCraft")
             .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([960.0, 600.0]),
+            .with_min_inner_size([960.0, 600.0])
+            // The Outlook-style title bar is drawn by MailCraft itself.
+            .with_decorations(false),
         ..Default::default()
     };
     eframe::run_native(

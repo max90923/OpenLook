@@ -21,9 +21,26 @@ fn config(state: &AppState, account_id: i64) -> Result<ImapConfig> {
     serde_json::from_str(&raw).context("IMAP-Konfiguration ungültig")
 }
 
-async fn connect(cfg: &ImapConfig) -> Result<Session> {
+/// Extra trusted CA certificates (PEM) from `MAILCRAFT_CA_FILE`, e.g. for
+/// company mail servers with an internal certificate authority.
+fn extra_ca_pem() -> Option<Vec<u8>> {
+    std::env::var_os("MAILCRAFT_CA_FILE").and_then(|p| std::fs::read(p).ok())
+}
+
+fn roots() -> Result<rustls::RootCertStore> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer};
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    if let Some(pem) = extra_ca_pem() {
+        for cert in CertificateDer::pem_slice_iter(&pem) {
+            roots.add(cert.context("MAILCRAFT_CA_FILE enthält kein gültiges Zertifikat")?)?;
+        }
+    }
+    Ok(roots)
+}
+
+async fn connect(cfg: &ImapConfig) -> Result<Session> {
+    let roots = roots()?;
     let tls = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
@@ -257,9 +274,23 @@ pub async fn send(
         cfg.username.clone(),
         cfg.password.clone(),
     );
-    let builder = match cfg.smtp_port {
-        465 => AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.smtp_host)?,
-        _ => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&cfg.smtp_host)?,
+    let builder = match extra_ca_pem() {
+        Some(pem) => {
+            use lettre::transport::smtp::client::{Certificate, Tls, TlsParameters};
+            let params = TlsParameters::builder(cfg.smtp_host.clone())
+                .add_root_certificate(Certificate::from_pem(&pem)?)
+                .build_rustls()?;
+            let tls = if cfg.smtp_port == 465 {
+                Tls::Wrapper(params)
+            } else {
+                Tls::Required(params)
+            };
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.smtp_host).tls(tls)
+        }
+        None => match cfg.smtp_port {
+            465 => AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.smtp_host)?,
+            _ => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&cfg.smtp_host)?,
+        },
     };
     builder
         .port(cfg.smtp_port)

@@ -544,8 +544,7 @@ impl App {
                 if sync || ctx.input(|i| i.key_pressed(egui::Key::F9)) {
                     self.sync_all();
                 }
-                if undo_ribbon || ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F1))
-                {
+                if undo_ribbon || ctx.input(|i| pressed(i, egui::Key::F1, true, false)) {
                     self.ribbon_collapsed = !self.ribbon_collapsed;
                 }
                 if self.backstage.is_some() {
@@ -970,11 +969,11 @@ impl App {
             (egui::Key::Num3, Module::People),
             (egui::Key::Num4, Module::Tasks),
         ] {
-            if ctx.input(|i| i.modifiers.command && i.key_pressed(k)) {
+            if ctx.input(|i| pressed(i, k, true, false)) {
                 self.switch_module(m);
             }
         }
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
+        if ctx.input(|i| pressed(i, egui::Key::N, true, false)) {
             match self.module {
                 Module::Mail => self.open_composer(compose::ComposeKind::New),
                 Module::Calendar => self.new_event_now(),
@@ -1054,6 +1053,21 @@ impl StrongIf for RichText {
     }
 }
 
+/// Keyboard shortcut check that uses the modifiers of the key event itself:
+/// with a quick Ctrl+X the Ctrl key can already be released before the end
+/// of the frame, so the current modifier state is not reliable.
+pub fn pressed(i: &egui::InputState, key: egui::Key, cmd: bool, shift: bool) -> bool {
+    i.events.iter().any(|e| {
+        matches!(e, egui::Event::Key { key: k, pressed: true, modifiers, .. }
+            if *k == key && modifiers.command == cmd && modifiers.shift == shift && !modifiers.alt)
+    })
+}
+
+/// Like [`pressed`] for Alt+key.
+pub fn pressed_alt(i: &egui::InputState, key: egui::Key) -> bool {
+    i.events.iter().any(|e| matches!(e, egui::Event::Key { key: k, pressed: true, modifiers, .. } if *k == key && modifiers.alt))
+}
+
 /// Lay out `text` on a single line, cut off with "…" at `width`.
 pub fn one_line(
     painter: &egui::Painter,
@@ -1091,7 +1105,7 @@ pub fn search_box(ui: &mut egui::Ui, t: &Theme, value: &mut String, hint: &str) 
                         .frame(false)
                         .desired_width(ui.available_width() - 24.0),
                 );
-                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::E)) {
+                if ui.input(|i| pressed(i, egui::Key::E, true, false)) {
                     r.request_focus();
                 }
                 if !value.is_empty() {

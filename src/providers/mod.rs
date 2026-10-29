@@ -597,3 +597,212 @@ mod tests {
         .is_err());
     }
 }
+
+/// End-to-end test against a real IMAP/SMTP server. Needs the environment
+/// variables `MAILCRAFT_IT_HOST`, `MAILCRAFT_IT_USER`, `MAILCRAFT_IT_PASSWORD`,
+/// `MAILCRAFT_IT_ADDRESS` (and `MAILCRAFT_CA_FILE` for a private CA). Run with
+/// `cargo test -- --ignored imap_end_to_end`.
+#[cfg(test)]
+mod it {
+    use super::*;
+
+    fn env(k: &str) -> String {
+        std::env::var(k).unwrap_or_else(|_| panic!("{k} fehlt"))
+    }
+
+    async fn folder(state: &AppState, acc: i64, role: &str) -> Folder {
+        db::folder_by_role(&state.db(), acc, role)
+            .unwrap()
+            .unwrap_or_else(|| panic!("Ordner {role} fehlt"))
+    }
+
+    fn messages(state: &AppState, folder_id: i64) -> Vec<MessageSummary> {
+        db::list_messages(
+            &state.db(),
+            &db::MessageQuery {
+                folder_id: Some(folder_id),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    async fn sync_until(
+        state: &AppState,
+        acc: i64,
+        role: &str,
+        pred: impl Fn(&[MessageSummary]) -> bool,
+    ) -> Vec<MessageSummary> {
+        for _ in 0..20 {
+            sync(state, acc).await.unwrap();
+            let f = folder(state, acc, role).await;
+            let list = messages(state, f.id);
+            if pred(&list) {
+                return list;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        panic!("Bedingung im Ordner {role} nicht erreicht");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn imap_end_to_end() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let state = AppState::in_memory();
+        let address = env("MAILCRAFT_IT_ADDRESS");
+        let cfg = ImapConfig {
+            imap_host: env("MAILCRAFT_IT_HOST"),
+            imap_port: 993,
+            smtp_host: env("MAILCRAFT_IT_HOST"),
+            smtp_port: 587,
+            username: env("MAILCRAFT_IT_USER"),
+            password: env("MAILCRAFT_IT_PASSWORD"),
+        };
+        imap::test_login(&cfg).await.unwrap();
+        let acc = db::insert_account(
+            &state.db(),
+            AccountKind::Imap,
+            "Test",
+            &address,
+            &serde_json::to_string(&cfg).unwrap(),
+        )
+        .unwrap();
+        sync(&state, acc).await.unwrap();
+        for role in ["inbox", "sent", "drafts", "trash", "junk", "archive"] {
+            folder(&state, acc, role).await;
+        }
+
+        // Send to ourselves with an attachment (SMTP submission + STARTTLS + AUTH).
+        let tag = format!("IT-{}", mail::now_utc());
+        let out = OutgoingMail {
+            account_id: acc,
+            to: address.clone(),
+            subject: format!("Test {tag}"),
+            body_html: "<p>Hallo <b>Welt</b></p>".into(),
+            importance: "high".into(),
+            attachments: vec![NewAttachment {
+                name: "notiz.txt".into(),
+                mime: "text/plain".into(),
+                data: b"Inhalt der Anlage".to_vec(),
+            }],
+            ..Default::default()
+        };
+        send(&state, &out).await.unwrap();
+        let inbox = sync_until(&state, acc, "inbox", |l| {
+            l.iter().any(|m| m.subject.contains(&tag))
+        })
+        .await;
+        let m = inbox
+            .iter()
+            .find(|m| m.subject.contains(&tag))
+            .unwrap()
+            .clone();
+        assert!(m.has_attachments && m.importance == "high" && !m.is_read);
+        let atts = db::attachments_with_data(&state.db(), m.id).unwrap();
+        assert_eq!(atts[0].name, "notiz.txt");
+        assert_eq!(atts[0].data, b"Inhalt der Anlage");
+        // The copy appended to "Sent" (IMAP APPEND) is on the server.
+        sync_until(&state, acc, "sent", |l| {
+            l.iter().any(|x| x.subject.contains(&tag))
+        })
+        .await;
+
+        // Flags go to the server: wipe the cache and read them back.
+        patch_message(
+            &state,
+            m.id,
+            &MessagePatch {
+                is_read: Some(true),
+                is_flagged: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        state.db().execute("DELETE FROM messages", []).unwrap();
+        let inbox = sync_until(&state, acc, "inbox", |l| {
+            l.iter().any(|x| x.subject.contains(&tag))
+        })
+        .await;
+        let m = inbox
+            .into_iter()
+            .find(|x| x.subject.contains(&tag))
+            .unwrap();
+        assert!(m.is_read && m.is_flagged);
+
+        // Folders: create, move into, rename, delete.
+        let projects = create_folder(
+            &state,
+            acc,
+            None,
+            &format!("Projekte-{}", std::process::id()),
+        )
+        .await
+        .unwrap();
+        move_message(&state, m.id, projects).await.unwrap();
+        sync(&state, acc).await.unwrap();
+        let pf = db::list_folders(&state.db())
+            .unwrap()
+            .into_iter()
+            .find(|f| f.id == projects)
+            .unwrap();
+        assert_eq!(pf.total, 1, "Nachricht liegt im neuen Ordner");
+        rename_folder(&state, projects, &format!("Kunden-{}", std::process::id()))
+            .await
+            .unwrap();
+        sync(&state, acc).await.unwrap();
+        let renamed = db::list_folders(&state.db())
+            .unwrap()
+            .into_iter()
+            .find(|f| f.name.starts_with("Kunden-"))
+            .expect("umbenannter Ordner");
+        assert_eq!(renamed.total, 1);
+        // Delete the message (→ Gelöschte Elemente), then the empty folder.
+        let mid = messages(&state, renamed.id)[0].id;
+        delete_message(&state, mid).await.unwrap();
+        sync_until(&state, acc, "trash", |l| {
+            l.iter().any(|x| x.subject.contains(&tag))
+        })
+        .await;
+        delete_folder(&state, renamed.id).await.unwrap();
+        sync(&state, acc).await.unwrap();
+        assert!(!db::list_folders(&state.db())
+            .unwrap()
+            .iter()
+            .any(|f| f.name.starts_with("Kunden-")));
+
+        // Rules act on new mail after send/receive.
+        let archive = folder(&state, acc, "archive").await;
+        crate::rules::save(
+            &state.db(),
+            &[crate::rules::Rule {
+                name: "Archiv".into(),
+                enabled: true,
+                field: crate::rules::Field::Subject,
+                contains: format!("Regel {tag}"),
+                action: crate::rules::Action::Move,
+                folder_id: Some(archive.id),
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        send(
+            &state,
+            &OutgoingMail {
+                account_id: acc,
+                to: address.clone(),
+                subject: format!("Regel {tag}"),
+                body_html: "x".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        sync_until(&state, acc, "archive", |l| {
+            l.iter()
+                .any(|x| x.subject.contains(&format!("Regel {tag}")))
+        })
+        .await;
+    }
+}

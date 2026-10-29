@@ -1152,22 +1152,21 @@ impl App {
         }
         let sel = self.mail.current.as_ref().map(|m| &m.summary);
         ctx.input(|i| {
-            let cmd = i.modifiers.command;
+            let ctrl = |k| super::pressed(i, k, true, false);
             if let Some(m) = sel {
                 if i.key_pressed(egui::Key::Delete) {
                     acts.push(Act::Delete(m.id));
                 }
-                if cmd && i.key_pressed(egui::Key::R) {
-                    acts.push(Act::Compose(if i.modifiers.shift {
-                        ComposeKind::ReplyAll(m.id)
-                    } else {
-                        ComposeKind::Reply(m.id)
-                    }));
+                if ctrl(egui::Key::R) {
+                    acts.push(Act::Compose(ComposeKind::Reply(m.id)));
                 }
-                if cmd && i.key_pressed(egui::Key::F) {
+                if super::pressed(i, egui::Key::R, true, true) {
+                    acts.push(Act::Compose(ComposeKind::ReplyAll(m.id)));
+                }
+                if ctrl(egui::Key::F) {
                     acts.push(Act::Compose(ComposeKind::Forward(m.id)));
                 }
-                if cmd && i.key_pressed(egui::Key::Q) {
+                if ctrl(egui::Key::Q) {
                     acts.push(Act::Patch(
                         m.id,
                         MessagePatch {
@@ -1176,7 +1175,7 @@ impl App {
                         },
                     ));
                 }
-                if cmd && i.key_pressed(egui::Key::U) {
+                if ctrl(egui::Key::U) {
                     acts.push(Act::Patch(
                         m.id,
                         MessagePatch {
@@ -1197,7 +1196,7 @@ impl App {
                 if i.key_pressed(egui::Key::Enter) {
                     acts.push(Act::Open(m.id));
                 }
-                if cmd && i.key_pressed(egui::Key::P) {
+                if ctrl(egui::Key::P) {
                     acts.push(Act::Print(m.id));
                 }
             }

@@ -41,6 +41,8 @@ pub struct Composer {
     attachments: Vec<NewAttachment>,
     /// Last selection in the body (char indices) for the format buttons.
     sel: (usize, usize),
+    /// `sel` was changed by a format button and must be pushed into the editor.
+    sel_dirty: bool,
     changed: bool,
     confirm_close: bool,
     address_book: Option<u8>,
@@ -71,6 +73,7 @@ impl Composer {
             address_book: None,
             attachments: vec![],
             sel: (0, 0),
+            sel_dirty: false,
         }
     }
 
@@ -194,7 +197,7 @@ impl App {
         }
         let t = self.t;
         let title = format!(
-            "{} - Nachricht (Nur-Text)",
+            "{} - Nachricht (HTML)",
             if c.subject.trim().is_empty() {
                 "Unbenannt"
             } else {
@@ -208,6 +211,12 @@ impl App {
         let mut save = false;
         let mut discard = false;
         let closed = chrome::native_window(ctx, vid, &title, [900.0, 700.0], &t, |ui| {
+            // Alt+S sends; drop the "s" the keyboard also typed so it doesn't land in the text.
+            if ui.input(|i| super::pressed_alt(i, egui::Key::S)) {
+                send = true;
+                ui.ctx()
+                    .input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Text(_))));
+            }
             chrome::item_ribbon(ui, &t, "Nachricht", |ui| {
                 chrome::group(ui, &t, "Namen", |ui| {
                     if chrome::large(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", !c.sending)
@@ -234,15 +243,20 @@ impl App {
                     chrome::column(ui, |ui| {
                         ui.horizontal(|ui| {
                             for (icon, marker, tip) in [
-                                (ph::TEXT_B, "**", "Fett (Strg+B)"),
-                                (ph::TEXT_ITALIC, "*", "Kursiv (Strg+I)"),
-                                (ph::TEXT_UNDERLINE, "__", "Unterstrichen (Strg+U)"),
+                                (ph::TEXT_B, super::html::BOLD, "Fett (Strg+B)"),
+                                (ph::TEXT_ITALIC, super::html::ITALIC, "Kursiv (Strg+I)"),
+                                (
+                                    ph::TEXT_UNDERLINE,
+                                    super::html::UNDERLINE,
+                                    "Unterstrichen (Strg+U)",
+                                ),
                             ] {
                                 if chrome::small(ui, &t, icon, t.text, "", !c.sending)
                                     .on_hover_text(tip)
                                     .clicked()
                                 {
                                     c.sel = super::html::toggle_wrap(&mut c.body, c.sel, marker);
+                                    c.sel_dirty = true;
                                     c.changed = true;
                                 }
                             }
@@ -253,6 +267,7 @@ impl App {
                                 .clicked()
                             {
                                 super::html::toggle_list(&mut c.body, c.sel, false);
+                                c.sel_dirty = true;
                                 c.changed = true;
                             }
                             if chrome::small(ui, &t, ph::LIST_NUMBERS, t.text, "", !c.sending)
@@ -260,6 +275,7 @@ impl App {
                                 .clicked()
                             {
                                 super::html::toggle_list(&mut c.body, c.sel, true);
+                                c.sel_dirty = true;
                                 c.changed = true;
                             }
                         });
@@ -515,7 +531,24 @@ impl App {
                                             ))
                                         })
                                     };
+                                let body_id = egui::Id::new(("compose-body", wid));
+                                if c.sel_dirty {
+                                    // Put the cursor/selection where the format button left it.
+                                    let mut state =
+                                        egui::text_edit::TextEditState::load(ui.ctx(), body_id)
+                                            .unwrap_or_default();
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::two(
+                                            egui::text::CCursor::new(c.sel.0.min(c.sel.1)),
+                                            egui::text::CCursor::new(c.sel.0.max(c.sel.1)),
+                                        ),
+                                    ));
+                                    state.store(ui.ctx(), body_id);
+                                    ui.ctx().memory_mut(|m| m.request_focus(body_id));
+                                    c.sel_dirty = false;
+                                }
                                 let out = egui::TextEdit::multiline(&mut c.body)
+                                    .id(body_id)
                                     .frame(false)
                                     .lock_focus(true)
                                     .min_size(egui::vec2(w - 14.0, h - 8.0))
@@ -530,23 +563,21 @@ impl App {
                     });
                 });
 
-            if ui.input(|i| {
-                (i.modifiers.alt && i.key_pressed(egui::Key::S))
-                    || (i.modifiers.command && i.key_pressed(egui::Key::Enter))
-            }) {
+            if ui.input(|i| super::pressed(i, egui::Key::Enter, true, false)) {
                 send = true;
             }
             for (key, marker) in [
-                (egui::Key::B, "**"),
-                (egui::Key::I, "*"),
-                (egui::Key::U, "__"),
+                (egui::Key::B, super::html::BOLD),
+                (egui::Key::I, super::html::ITALIC),
+                (egui::Key::U, super::html::UNDERLINE),
             ] {
-                if ui.input(|i| i.modifiers.command && i.key_pressed(key)) {
+                if ui.input(|i| super::pressed(i, key, true, false)) {
                     c.sel = super::html::toggle_wrap(&mut c.body, c.sel, marker);
+                    c.sel_dirty = true;
                     c.changed = true;
                 }
             }
-            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+            if ui.input(|i| super::pressed(i, egui::Key::S, true, false)) {
                 save = true;
             }
             if let Some(field) = c.address_book {
@@ -876,6 +907,7 @@ fn resolve_names(field: &str, contacts: &[Contact]) -> String {
 }
 
 /// Recipient field with suggestions from the address book ("AutoVervollständigen").
+/// Enter or Tab takes the first suggestion, a click takes the clicked one.
 fn address_field(
     ui: &mut egui::Ui,
     id: impl std::hash::Hash,
@@ -889,53 +921,74 @@ fn address_field(
             .desired_width(width),
     );
     let mut changed = resp.changed();
+    let rect_id = resp.id.with("suggest_rect");
+    let last_popup: Option<egui::Rect> = ui.data(|d| d.get_temp(rect_id));
+    // Keep the list alive for the frame in which a click on it moves the focus away.
+    let clicking_popup = last_popup.is_some_and(|r| {
+        ui.input(|i| {
+            i.pointer.interact_pos().is_some_and(|p| r.contains(p))
+                && (i.pointer.any_down() || i.pointer.any_released())
+        })
+    });
+    let confirm = resp.lost_focus()
+        && ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Tab));
     let token = value
         .rsplit([';', ','])
         .next()
         .unwrap_or("")
         .trim()
         .to_lowercase();
-    if !resp.has_focus() || token.is_empty() || token.contains('>') {
-        return changed;
-    }
-    let hits: Vec<&Contact> = contacts
-        .iter()
-        .filter(|c| !c.email.is_empty())
-        .filter(|c| {
-            c.display_name.to_lowercase().contains(&token)
-                || c.email.to_lowercase().contains(&token)
-        })
-        .take(6)
-        .collect();
+    let active = resp.has_focus() || clicking_popup || confirm;
+    let hits: Vec<&Contact> = if active && !token.is_empty() && !token.contains('>') {
+        contacts
+            .iter()
+            .filter(|c| !c.email.is_empty())
+            .filter(|c| {
+                c.display_name.to_lowercase().contains(&token)
+                    || c.email.to_lowercase().contains(&token)
+            })
+            .take(6)
+            .collect()
+    } else {
+        vec![]
+    };
+    let take = |value: &mut String, c: &Contact| {
+        let keep = value
+            .rfind([';', ','])
+            .map(|i| value[..=i].to_string() + " ")
+            .unwrap_or_default();
+        *value = format!("{keep}{} <{}>; ", c.display_name, c.email);
+    };
     if hits.is_empty() || hits.iter().any(|c| c.email.to_lowercase() == token) {
+        ui.data_mut(|d| d.remove::<egui::Rect>(rect_id));
         return changed;
     }
-    egui::Area::new(resp.id.with("suggest"))
+    if confirm {
+        take(value, hits[0]);
+        ui.data_mut(|d| d.remove::<egui::Rect>(rect_id));
+        resp.request_focus();
+        return true;
+    }
+    let area = egui::Area::new(resp.id.with("suggest"))
         .order(egui::Order::Foreground)
         .fixed_pos(resp.rect.left_bottom() + egui::vec2(0.0, 1.0))
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(resp.rect.width().min(420.0));
-                for c in hits {
+                for (i, c) in hits.iter().enumerate() {
+                    let text = RichText::new(format!("{}   <{}>", c.display_name, c.email));
                     let r = ui.add(
-                        egui::Button::new(RichText::new(format!(
-                            "{}   <{}>",
-                            c.display_name, c.email
-                        )))
-                        .frame(false),
+                        egui::Button::new(if i == 0 { text.strong() } else { text }).frame(false),
                     );
                     if r.clicked() || r.is_pointer_button_down_on() {
-                        let keep = value
-                            .rfind([';', ','])
-                            .map(|i| value[..=i].to_string() + " ")
-                            .unwrap_or_default();
-                        *value = format!("{keep}{} <{}>; ", c.display_name, c.email);
+                        take(value, c);
                         changed = true;
                         resp.request_focus();
                     }
                 }
             });
         });
+    ui.data_mut(|d| d.insert_temp(rect_id, area.response.rect));
     changed
 }
 

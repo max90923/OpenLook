@@ -1,5 +1,5 @@
 //! Minimal HTML rendering for the reading pane and a small formatting
-//! markup for writing mails (`**fett**`, `*kursiv*`, `__unterstrichen__`,
+//! markup for writing mails (`**fett**`, `~~kursiv~~`, `__unterstrichen__`,
 //! `• Aufzählung`, `1. Nummerierung`) that is shown styled while typing
 //! and sent as HTML.
 
@@ -484,16 +484,16 @@ pub fn show(
 // ---------------------------------------------------------------- compose markup
 
 /// Toggle markers at the start of `s`: (marker, kind).
+/// The three markers are distinct and none is a prefix of another, so an
+/// empty pair (e.g. "~~~~") can never be mistaken for a different style.
+pub const BOLD: &str = "**";
+pub const ITALIC: &str = "~~";
+pub const UNDERLINE: &str = "__";
+
 fn marker_at(s: &str) -> Option<(&'static str, u8)> {
-    if s.starts_with("**") {
-        Some(("**", 0))
-    } else if s.starts_with("__") {
-        Some(("__", 2))
-    } else if s.starts_with('*') {
-        Some(("*", 1))
-    } else {
-        None
-    }
+    [(BOLD, 0), (ITALIC, 1), (UNDERLINE, 2)]
+        .into_iter()
+        .find(|(m, _)| s.starts_with(m))
 }
 
 /// Styled layout for the compose editor; markers are shown dimmed.
@@ -632,6 +632,11 @@ pub fn toggle_wrap(text: &mut String, sel: (usize, usize), marker: &str) -> (usi
     let m = marker.chars().count();
     let before = &text[..ba];
     let after = &text[bb..];
+    // Cursor right before a closing marker: pressing the shortcut again ends
+    // the formatting, like in Outlook – just step over the marker.
+    if a == b && after.starts_with(marker) && before.matches(marker).count() % 2 == 1 {
+        return (a + m, a + m);
+    }
     if a != b && before.ends_with(marker) && after.starts_with(marker) {
         text.replace_range(bb..bb + marker.len(), "");
         text.replace_range(ba - marker.len()..ba, "");
@@ -743,8 +748,20 @@ mod tests {
         toggle_wrap(&mut t, sel, "**");
         assert_eq!(t, "Hallo Welt");
         let mut u = "Grüße".to_string();
-        toggle_wrap(&mut u, (0, 5), "*");
-        assert_eq!(u, "*Grüße*");
+        toggle_wrap(&mut u, (0, 5), ITALIC);
+        assert_eq!(u, "~~Grüße~~");
+        // Typing with shortcuts: on, text, off, text.
+        let mut t = "Das ist ".to_string();
+        let sel = toggle_wrap(&mut t, (8, 8), BOLD);
+        assert_eq!(sel, (10, 10));
+        t.insert_str(10, "wichtig");
+        let sel = toggle_wrap(&mut t, (17, 17), BOLD);
+        assert_eq!(sel, (19, 19));
+        t.push_str(" und ");
+        let sel = toggle_wrap(&mut t, (24, 24), ITALIC);
+        t.insert_str(sel.0, "kursiv");
+        assert_eq!(t, "Das ist **wichtig** und ~~kursiv~~");
+        assert!(markup_to_html(&t).contains("Das ist <b>wichtig</b> und <i>kursiv</i>"));
     }
 
     #[test]
@@ -760,7 +777,7 @@ mod tests {
 
     #[test]
     fn markup_to_html_formats() {
-        let html = markup_to_html("Hallo **Welt** und *du*\n• eins\n• zwei\n1. a\n<b>");
+        let html = markup_to_html("Hallo **Welt** und ~~du~~\n• eins\n• zwei\n1. a\n<b>");
         assert!(html.contains("Hallo <b>Welt</b> und <i>du</i><br>"));
         assert!(html.contains("<ul><li>eins</li><li>zwei</li></ul>"));
         assert!(html.contains("<ol><li>a</li></ol>"));
