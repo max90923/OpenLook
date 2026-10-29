@@ -1,0 +1,26 @@
+[package]
+name = "mailcraft"
+version = "0.1.0"
+edition = "2021"
+description = "Native Outlook-style desktop client for mail, calendar, contacts and tasks (IMAP/SMTP + Microsoft Graph)"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
+chrono = { version = "0.4", features = ["serde"] }
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui_extras = { version = "0.33", default-features = false, features = ["datepicker"] }
+futures = "0.3"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "hostname"] }
+mail-parser = "0.11"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+webpki-roots = "1"
