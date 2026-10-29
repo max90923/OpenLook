@@ -37,7 +37,7 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
     let fmt = |d: chrono::DateTime<Utc>| d.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let mails = [
         ("Willkommen bei MailCraft", "MailCraft Team", "team@mailcraft.local", 0, false, true,
-         "<h2>Willkommen!</h2><p>Dies ist dein lokales Postfach. Verbinde ein echtes Konto über <b>Einstellungen → Konten</b>:</p><ul><li><b>Microsoft 365 / Outlook.com</b> über Microsoft Graph</li><li><b>Jedes IMAP/SMTP-Konto</b> (Gmail, GMX, web.de, Posteo …)</li></ul><p>Tastenkürzel: <code>N</code> neue Mail, <code>R</code> antworten, <code>Entf</code> löschen, <code>Q</code> gelesen/ungelesen, <code>/</code> Suche.</p>"),
+         "<h2>Willkommen!</h2><p>Dies ist dein lokales Postfach. Verbinde ein echtes Konto über <b>Datei &gt; Konto hinzufügen</b>:</p><ul><li><b>Microsoft 365 / Outlook.com</b> über Microsoft Graph</li><li><b>Jedes IMAP/SMTP-Konto</b> (Gmail, GMX, web.de, Posteo …)</li></ul><p>Tastenkombinationen wie in Outlook: <code>Strg+N</code> neue E-Mail, <code>Strg+R</code> antworten, <code>Strg+F</code> weiterleiten, <code>Entf</code> löschen, <code>Strg+Q</code> als gelesen markieren, <code>Strg+E</code> suchen, <code>F9</code> Senden/Empfangen.</p>"),
         ("Projekt-Kickoff am Donnerstag", "Anna Schmidt", "anna.schmidt@example.com", 2, true, false,
          "<p>Hallo,</p><p>anbei die Agenda für den Kickoff. Bitte bringt eure Fragen mit.</p><p>Viele Grüße<br>Anna</p>"),
         ("Rechnung 2026-1042", "Buchhaltung", "rechnung@example.com", 26, false, false,
@@ -85,22 +85,34 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
             .and_utc())
     };
     for (title, start, end, loc, cat) in [
-        ("Daily Stand-up", at(0, 8, 0), at(0, 8, 15), "Teams", "Blau"),
+        (
+            "Daily Stand-up",
+            at(0, 8, 0),
+            at(0, 8, 15),
+            "Teams",
+            "Blaue Kategorie",
+        ),
         (
             "Projekt-Kickoff",
             at(2, 12, 0),
             at(2, 13, 30),
             "Raum 4.12",
-            "Orange",
+            "Orange Kategorie",
         ),
         (
             "Mittagessen mit Jonas",
             at(1, 11, 0),
             at(1, 12, 0),
             "Kantine",
-            "Grün",
+            "Grüne Kategorie",
         ),
-        ("1:1 mit Anna", at(3, 14, 0), at(3, 14, 30), "", "Lila"),
+        (
+            "1:1 mit Anna",
+            at(3, 14, 0),
+            at(3, 14, 30),
+            "",
+            "Lila Kategorie",
+        ),
     ] {
         db::save_event(
             c,

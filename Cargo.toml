@@ -11,6 +11,7 @@ async-imap = { version = "0.10", default-features = false, features = ["runtime-
 chrono = { version = "0.4", features = ["serde"] }
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui_extras = { version = "0.33", default-features = false, features = ["datepicker"] }
+egui-phosphor = { version = "0.11", features = ["regular", "fill"] }
 futures = "0.3"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "hostname"] }
 mail-parser = "0.11"

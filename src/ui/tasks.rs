@@ -1,499 +1,773 @@
-//! To Do module: smart lists (Mein Tag, Wichtig, Geplant, Aufgaben) plus
-//! every task list of the connected accounts.
+//! Tasks module: classic table view ("Einfache Liste") with the
+//! "Klicken Sie hier, um eine neue Aufgabe zu erstellen" row, and the task window.
 
-use chrono::NaiveDate;
-use eframe::egui::{self, Color32, RichText, Sense};
+use chrono::{Datelike, Duration, NaiveDate};
+use eframe::egui::{self, RichText, Sense};
+use egui_phosphor::regular as ph;
 
-use super::{App, BRAND, DANGER};
+use super::{
+    chrome::{self, IC_BLUE, IC_GREEN, IC_PURPLE, IC_RED},
+    App, Win,
+};
 use crate::{models::*, providers};
 
-#[derive(Clone, PartialEq, Eq, Default)]
-pub enum TaskList {
-    MyDay,
-    Important,
-    Planned,
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum TaskFilter {
     #[default]
     All,
-    /// (account id, list name)
-    Named(i64, String),
+    Active,
+    Completed,
+    Today,
+    Overdue,
 }
 
 #[derive(Default)]
 pub struct TasksView {
-    list: TaskList,
-    new_title: String,
+    filter: TaskFilter,
+    /// (account id, list name); None = all lists ("Aufgabenliste").
+    list: Option<(i64, String)>,
     selected: Option<i64>,
-    show_completed: bool,
-    detail: Option<Task>,
+    new_title: String,
 }
 
-impl TaskList {
-    fn title(&self) -> String {
-        match self {
-            TaskList::MyDay => "☀ Mein Tag".into(),
-            TaskList::Important => "★ Wichtig".into(),
-            TaskList::Planned => "📅 Geplant".into(),
-            TaskList::All => "🏠 Aufgaben".into(),
-            TaskList::Named(_, n) => format!("☰ {n}"),
-        }
-    }
+pub struct TaskEditor {
+    t: Task,
+    has_due: bool,
+    due: NaiveDate,
+}
 
-    fn matches(&self, t: &Task) -> bool {
-        match self {
-            TaskList::MyDay => t.my_day || t.due == super::today().format("%Y-%m-%d").to_string(),
-            TaskList::Important => t.important,
-            TaskList::Planned => !t.due.is_empty(),
-            TaskList::All => true,
-            TaskList::Named(a, n) => t.account_id == *a && &t.list_name == n,
+impl TaskEditor {
+    fn new(t: Task) -> Self {
+        let due = NaiveDate::parse_from_str(&t.due, "%Y-%m-%d").ok();
+        Self {
+            has_due: due.is_some(),
+            due: due.unwrap_or_else(super::today),
+            t,
         }
     }
+}
+
+fn due_date(t: &Task) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(&t.due, "%Y-%m-%d").ok()
 }
 
 impl App {
-    pub fn tasks_ui(&mut self, ui: &mut egui::Ui) {
-        let mut save: Vec<Task> = vec![];
-        let mut delete = None;
+    pub fn new_task(&mut self) {
+        let (account_id, list_name) = match &self.tasks.list {
+            Some((a, n)) => (*a, n.clone()),
+            None => (self.data.default_pim_account(), String::new()),
+        };
+        let list_remote_id = self.list_remote_id(account_id, &list_name);
+        self.open_window(Win::Task(TaskEditor::new(Task {
+            account_id,
+            list_name,
+            list_remote_id,
+            ..Default::default()
+        })));
+    }
 
-        // Lists pane.
-        egui::SidePanel::left("task_lists")
-            .exact_width(250.0)
-            .resizable(false)
-            .frame(egui::Frame::new())
-            .show_inside(ui, |ui| {
-                for l in [
-                    TaskList::MyDay,
-                    TaskList::Important,
-                    TaskList::Planned,
-                    TaskList::All,
-                ] {
-                    let n = self
-                        .data
-                        .tasks
-                        .iter()
-                        .filter(|t| !t.completed && l.matches(t))
-                        .count();
-                    self.task_list_row(ui, l, n);
-                }
-                ui.separator();
-                let mut named: Vec<(i64, String)> = self
-                    .data
-                    .tasks
-                    .iter()
-                    .map(|t| (t.account_id, t.list_name.clone()))
-                    .collect();
-                named.sort();
-                named.dedup();
-                for (acc, name) in named {
-                    let l = TaskList::Named(acc, name);
-                    let n = self
-                        .data
-                        .tasks
-                        .iter()
-                        .filter(|t| !t.completed && l.matches(t))
-                        .count();
-                    self.task_list_row(ui, l, n);
+    fn list_remote_id(&self, account_id: i64, list_name: &str) -> String {
+        self.data
+            .tasks
+            .iter()
+            .find(|t| t.account_id == account_id && t.list_name == list_name)
+            .map(|t| t.list_remote_id.clone())
+            .unwrap_or_default()
+    }
+
+    fn visible_tasks(&self) -> Vec<Task> {
+        let today = super::today();
+        let needle = self.search.trim().to_lowercase();
+        self.data
+            .tasks
+            .iter()
+            .filter(|t| {
+                self.tasks
+                    .list
+                    .as_ref()
+                    .is_none_or(|(a, n)| t.account_id == *a && &t.list_name == n)
+            })
+            .filter(|t| match self.tasks.filter {
+                TaskFilter::All => true,
+                TaskFilter::Active => !t.completed,
+                TaskFilter::Completed => t.completed,
+                TaskFilter::Today => !t.completed && due_date(t).is_some_and(|d| d <= today),
+                TaskFilter::Overdue => !t.completed && due_date(t).is_some_and(|d| d < today),
+            })
+            .filter(|t| {
+                needle.is_empty()
+                    || t.title.to_lowercase().contains(&needle)
+                    || t.notes.to_lowercase().contains(&needle)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn save_task(&mut self, t: Task, msg: Option<&str>) {
+        self.spawn(msg, move |st, _| async move {
+            providers::save_task(&st, t).await.map(|_| ())
+        });
+    }
+
+    pub fn tasks_ribbon(&mut self, ui: &mut egui::Ui) {
+        if self.ribbon_tab != 0 {
+            self.common_ribbon(ui);
+            return;
+        }
+        let t = self.t;
+        let sel = self
+            .tasks
+            .selected
+            .and_then(|id| self.data.tasks.iter().find(|x| x.id == id))
+            .cloned();
+        chrome::group(ui, &t, "Neu", |ui| {
+            if chrome::large(
+                ui,
+                &t,
+                ph::CHECK_SQUARE_OFFSET,
+                IC_GREEN,
+                "Neue\nAufgabe",
+                true,
+            )
+            .clicked()
+            {
+                self.new_task();
+            }
+        });
+        chrome::group(ui, &t, "Löschen", |ui| {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", sel.is_some()).clicked() {
+                let id = sel.as_ref().unwrap().id;
+                self.tasks.selected = None;
+                self.spawn(Some("Aufgabe gelöscht."), move |st, _| async move {
+                    providers::delete_task(&st, id).await
+                });
+            }
+        });
+        chrome::group(ui, &t, "Aufgabe verwalten", |ui| {
+            if chrome::large(
+                ui,
+                &t,
+                ph::CHECK,
+                IC_GREEN,
+                "Als erledigt\nmarkieren",
+                sel.as_ref().is_some_and(|x| !x.completed),
+            )
+            .clicked()
+            {
+                let mut x = sel.clone().unwrap();
+                x.completed = true;
+                self.save_task(x, None);
+            }
+        });
+        chrome::group(ui, &t, "Nachverfolgung", |ui| {
+            let today = super::today();
+            let monday_next =
+                today + Duration::days(7 - today.weekday().num_days_from_monday() as i64);
+            let friday = monday_next - Duration::days(3);
+            let options: [(&str, Option<NaiveDate>); 5] = [
+                ("Heute", Some(today)),
+                ("Morgen", Some(today + Duration::days(1))),
+                ("Diese Woche", Some(friday.max(today))),
+                ("Nächste Woche", Some(monday_next)),
+                ("Kein Datum", None),
+            ];
+            chrome::column(ui, |ui| {
+                for (label, d) in &options[..3] {
+                    if chrome::small(ui, &t, ph::FLAG, IC_RED, label, sel.is_some()).clicked() {
+                        let mut x = sel.clone().unwrap();
+                        x.due = d
+                            .map(|d| d.format("%Y-%m-%d").to_string())
+                            .unwrap_or_default();
+                        self.save_task(x, None);
+                    }
                 }
             });
-
-        // Detail pane.
-        if self.tasks.selected.is_some() {
-            if self.tasks.detail.as_ref().map(|d| d.id) != self.tasks.selected {
-                self.tasks.detail = self
-                    .data
-                    .tasks
-                    .iter()
-                    .find(|t| Some(t.id) == self.tasks.selected)
-                    .cloned();
-            }
-            if let Some(d) = &mut self.tasks.detail {
-                let mut close = false;
-                egui::SidePanel::right("task_detail")
-                    .exact_width(340.0)
-                    .resizable(false)
-                    .frame(super::pane_frame(ui).inner_margin(egui::Margin::same(16)))
-                    .show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut d.completed, "");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut d.title)
-                                    .font(egui::TextStyle::Heading)
-                                    .desired_width(240.0),
-                            );
-                            if ui.button(if d.important { "★" } else { "☆" }).clicked() {
-                                d.important = !d.important;
-                            }
-                        });
-                        ui.add_space(10.0);
-                        ui.checkbox(&mut d.my_day, "☀ Zu „Mein Tag“ hinzufügen");
-                        ui.add_space(6.0);
-                        let mut has_due = !d.due.is_empty();
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut has_due, "📅 Fälligkeitsdatum");
-                            if has_due {
-                                let mut date = NaiveDate::parse_from_str(&d.due, "%Y-%m-%d")
-                                    .unwrap_or_else(|_| super::today());
-                                ui.add(
-                                    egui_extras::DatePickerButton::new(&mut date)
-                                        .id_salt("due")
-                                        .format("%d.%m.%Y"),
-                                );
-                                d.due = date.format("%Y-%m-%d").to_string();
-                            } else {
-                                d.due.clear();
-                            }
-                        });
-                        ui.add_space(6.0);
-                        ui.label(RichText::new(format!("Liste: {}", d.list_name)).weak());
-                        ui.add_space(6.0);
-                        ui.add(
-                            egui::TextEdit::multiline(&mut d.notes)
-                                .hint_text("Notiz hinzufügen")
-                                .desired_rows(8)
-                                .desired_width(f32::INFINITY),
-                        );
-                        ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            if super::primary_button(ui, "💾  Speichern").clicked() {
-                                save.push(d.clone());
-                            }
-                            if ui
-                                .button(RichText::new("🗑  Löschen").color(DANGER))
-                                .clicked()
-                            {
-                                delete = Some(d.id);
-                            }
-                            if ui.button("Schließen").clicked() {
-                                close = true;
-                            }
-                        });
-                    });
-                if close {
-                    self.tasks.selected = None;
-                    self.tasks.detail = None;
+            chrome::column(ui, |ui| {
+                for (label, d) in &options[3..] {
+                    if chrome::small(ui, &t, ph::FLAG, IC_RED, label, sel.is_some()).clicked() {
+                        let mut x = sel.clone().unwrap();
+                        x.due = d
+                            .map(|d| d.format("%Y-%m-%d").to_string())
+                            .unwrap_or_default();
+                        self.save_task(x, None);
+                    }
                 }
+            });
+        });
+        chrome::group(ui, &t, "Aktuelle Ansicht", |ui| {
+            chrome::column(ui, |ui| {
+                for (f, label) in [
+                    (TaskFilter::All, "Einfache Liste"),
+                    (TaskFilter::Active, "Aktiv"),
+                    (TaskFilter::Completed, "Erledigt"),
+                ] {
+                    let txt = if self.tasks.filter == f {
+                        format!("{label}  \u{E182}")
+                    } else {
+                        label.to_string()
+                    };
+                    if chrome::small(ui, &t, ph::LIST_CHECKS, IC_BLUE, &txt, true).clicked() {
+                        self.tasks.filter = f;
+                    }
+                }
+            });
+            chrome::column(ui, |ui| {
+                for (f, label) in [
+                    (TaskFilter::Today, "Heute"),
+                    (TaskFilter::Overdue, "Überfällig"),
+                ] {
+                    let txt = if self.tasks.filter == f {
+                        format!("{label}  \u{E182}")
+                    } else {
+                        label.to_string()
+                    };
+                    if chrome::small(ui, &t, ph::CALENDAR_CHECK, IC_BLUE, &txt, true).clicked() {
+                        self.tasks.filter = f;
+                    }
+                }
+            });
+        });
+    }
+
+    pub fn tasks_nav(&mut self, ui: &mut egui::Ui) {
+        let t = self.t;
+        ui.label(RichText::new(format!("{}  Meine Aufgaben", ph::CARET_DOWN)).strong());
+        let mut lists: Vec<(i64, String)> = self
+            .data
+            .tasks
+            .iter()
+            .map(|t| (t.account_id, t.list_name.clone()))
+            .collect();
+        lists.sort();
+        lists.dedup();
+        let entries: Vec<(Option<(i64, String)>, String)> =
+            std::iter::once((None, "Aufgabenliste".to_string()))
+                .chain(lists.into_iter().map(|(a, n)| {
+                    let acc = self
+                        .data
+                        .account(a)
+                        .map(|x| x.email.clone())
+                        .unwrap_or_default();
+                    let label = if self.data.accounts.len() > 1 {
+                        format!("{n} – {acc}")
+                    } else {
+                        n.clone()
+                    };
+                    (Some((a, n)), label)
+                }))
+                .collect();
+        for (key, label) in entries {
+            let active = self.tasks.list == key;
+            let w = ui.available_width();
+            let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());
+            if active {
+                ui.painter().rect_filled(r, 0, t.selected);
+            } else if resp.hovered() {
+                ui.painter().rect_filled(r, 0, t.hover);
+            }
+            let g = super::one_line(
+                ui.painter(),
+                &label,
+                egui::FontId::proportional(13.0),
+                t.text,
+                w - 30.0,
+            );
+            ui.painter().galley(
+                egui::pos2(r.left() + 26.0, r.center().y - g.size().y / 2.0),
+                g,
+                t.text,
+            );
+            if resp.clicked() {
+                self.tasks.list = key;
             }
         }
+    }
 
-        // Main list.
-        egui::CentralPanel::default()
-            .frame(super::pane_frame(ui).inner_margin(egui::Margin::symmetric(24, 18)))
-            .show_inside(ui, |ui| {
-                ui.label(
-                    RichText::new(self.tasks.list.title())
-                        .size(24.0)
-                        .strong()
-                        .color(BRAND),
-                );
-                if self.tasks.list == TaskList::MyDay {
-                    let t = super::today();
-                    ui.label(
-                        RichText::new(format!(
-                            "{}, {}. {}",
-                            super::WEEKDAYS_LONG
-                                [chrono::Datelike::weekday(&t).num_days_from_monday() as usize],
-                            chrono::Datelike::day(&t),
-                            super::MONTHS[chrono::Datelike::month0(&t) as usize]
-                        ))
-                        .weak(),
-                    );
-                }
-                ui.add_space(10.0);
-                let add = ui.add(
-                    egui::TextEdit::singleline(&mut self.tasks.new_title)
-                        .hint_text("+  Aufgabe hinzufügen (Enter)")
-                        .desired_width(f32::INFINITY)
-                        .margin(egui::Margin::symmetric(10, 10)),
-                );
-                if add.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    && !self.tasks.new_title.trim().is_empty()
-                {
-                    let (account_id, list_name, list_remote_id) = match &self.tasks.list {
-                        TaskList::Named(a, n) => {
-                            let rid = self
-                                .data
-                                .tasks
-                                .iter()
-                                .find(|t| t.account_id == *a && &t.list_name == n)
-                                .map(|t| t.list_remote_id.clone())
-                                .unwrap_or_default();
-                            (*a, n.clone(), rid)
-                        }
-                        _ => (
-                            self.data.local_account_id(),
-                            "Aufgaben".to_string(),
-                            String::new(),
-                        ),
-                    };
-                    save.push(Task {
-                        account_id,
-                        list_name,
-                        list_remote_id,
-                        title: self.tasks.new_title.trim().to_string(),
-                        important: self.tasks.list == TaskList::Important,
-                        my_day: self.tasks.list == TaskList::MyDay,
-                        due: if self.tasks.list == TaskList::Planned {
-                            super::today().format("%Y-%m-%d").to_string()
-                        } else {
-                            String::new()
-                        },
-                        ..Default::default()
+    pub fn tasks_ui(&mut self, ui: &mut egui::Ui) {
+        let t = self.t;
+        let tasks = self.visible_tasks();
+        let today = super::today();
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(8, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let title = self
+                        .tasks
+                        .list
+                        .as_ref()
+                        .map(|(_, n)| n.clone())
+                        .unwrap_or_else(|| "Aufgabenliste".into());
+                    ui.label(RichText::new(title).size(17.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.allocate_ui(egui::vec2(320.0, 26.0), |ui| {
+                            super::search_box(
+                                ui,
+                                &t,
+                                &mut self.search,
+                                "Aufgaben durchsuchen (Strg+E)",
+                            );
+                        });
                     });
-                    self.tasks.new_title.clear();
-                    add.request_focus();
-                }
-                ui.add_space(10.0);
-                let needle = self.search.trim().to_lowercase();
-                let visible: Vec<Task> = self
-                    .data
-                    .tasks
-                    .iter()
-                    .filter(|t| self.tasks.list.matches(t))
-                    .filter(|t| {
-                        needle.is_empty()
-                            || t.title.to_lowercase().contains(&needle)
-                            || t.notes.to_lowercase().contains(&needle)
-                    })
-                    .cloned()
-                    .collect();
-                egui::ScrollArea::vertical()
-                    .id_salt("tasks_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for t in visible.iter().filter(|t| !t.completed) {
-                            self.task_row(ui, t, &mut save);
-                        }
-                        let done: Vec<&Task> = visible.iter().filter(|t| t.completed).collect();
-                        if !done.is_empty() {
-                            ui.add_space(12.0);
-                            let arrow = if self.tasks.show_completed {
-                                "⏷"
+                });
+            });
+
+        // Columns as in Outlook's "Einfache Liste".
+        let w = ui.available_width() - 12.0;
+        let cols: [(&str, f32); 6] = [
+            ("", 28.0),
+            ("!", 22.0),
+            (
+                "Aufgabenbetreff",
+                w - 28.0 - 22.0 - 110.0 - 150.0 - 140.0 - 34.0,
+            ),
+            ("Fällig am", 110.0),
+            ("In Ordner", 150.0),
+            ("Kategorien", 140.0),
+        ];
+        let (head, _) = ui.allocate_exact_size(egui::vec2(w + 12.0, 24.0), Sense::hover());
+        ui.painter().rect_filled(head, 0, t.ribbon);
+        let mut x = head.left() + 6.0;
+        for (name, cw) in cols {
+            ui.painter().text(
+                egui::pos2(x + 6.0, head.center().y),
+                egui::Align2::LEFT_CENTER,
+                name,
+                egui::FontId::proportional(12.5),
+                t.text,
+            );
+            x += cw;
+            ui.painter()
+                .vline(x, head.y_range(), egui::Stroke::new(1.0_f32, t.border));
+        }
+        ui.painter().text(
+            egui::pos2(x + 10.0, head.center().y),
+            egui::Align2::LEFT_CENTER,
+            ph::FLAG,
+            egui::FontId::proportional(12.0),
+            t.text,
+        );
+
+        let mut save: Vec<Task> = vec![];
+        let mut open = None;
+        egui::ScrollArea::vertical()
+            .id_salt("tasks_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                // "Click here to add a new task" row.
+                ui.horizontal(|ui| {
+                    ui.add_space(62.0);
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut self.tasks.new_title)
+                            .hint_text("Klicken Sie hier, um eine neue Aufgabe zu erstellen")
+                            .desired_width(w - 70.0)
+                            .frame(false),
+                    );
+                    if r.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && !self.tasks.new_title.trim().is_empty()
+                    {
+                        let (account_id, list_name) = match &self.tasks.list {
+                            Some((a, n)) => (*a, n.clone()),
+                            None => (self.data.default_pim_account(), String::new()),
+                        };
+                        save.push(Task {
+                            account_id,
+                            list_remote_id: self.list_remote_id(account_id, &list_name),
+                            list_name,
+                            title: self.tasks.new_title.trim().to_string(),
+                            ..Default::default()
+                        });
+                        self.tasks.new_title.clear();
+                        r.request_focus();
+                    }
+                });
+                ui.painter().hline(
+                    ui.max_rect().x_range(),
+                    ui.cursor().top(),
+                    egui::Stroke::new(1.0_f32, t.border),
+                );
+                for task in &tasks {
+                    let (r, resp) =
+                        ui.allocate_exact_size(egui::vec2(w + 12.0, 26.0), Sense::click());
+                    let sel = self.tasks.selected == Some(task.id);
+                    if sel {
+                        ui.painter().rect_filled(r, 0, t.selected);
+                    } else if resp.hovered() {
+                        ui.painter().rect_filled(r, 0, t.hover);
+                    }
+                    ui.painter().hline(
+                        r.x_range(),
+                        r.bottom() - 0.5,
+                        egui::Stroke::new(1.0_f32, t.border.gamma_multiply(0.6)),
+                    );
+                    let overdue = !task.completed && due_date(task).is_some_and(|d| d < today);
+                    let color = if task.completed {
+                        t.text_weak
+                    } else if overdue {
+                        t.danger
+                    } else {
+                        t.text
+                    };
+                    let mut x = r.left() + 6.0;
+                    let cy = r.center().y;
+                    // Checkbox.
+                    let cb = egui::Rect::from_center_size(
+                        egui::pos2(x + 14.0, cy),
+                        egui::vec2(14.0, 14.0),
+                    );
+                    ui.painter().rect_stroke(
+                        cb,
+                        0,
+                        egui::Stroke::new(1.0_f32, t.text_weak),
+                        egui::StrokeKind::Inside,
+                    );
+                    if task.completed {
+                        ui.painter().text(
+                            cb.center(),
+                            egui::Align2::CENTER_CENTER,
+                            ph::CHECK,
+                            egui::FontId::proportional(12.0),
+                            t.text,
+                        );
+                    }
+                    x += cols[0].1;
+                    if task.important {
+                        ui.painter().text(
+                            egui::pos2(x + 8.0, cy),
+                            egui::Align2::LEFT_CENTER,
+                            "!",
+                            egui::FontId::proportional(14.0),
+                            t.danger,
+                        );
+                    }
+                    x += cols[1].1;
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        &task.title,
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(13.0),
+                            color,
+                            strikethrough: if task.completed {
+                                egui::Stroke::new(1.0_f32, color)
                             } else {
-                                "⏵"
-                            };
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        RichText::new(format!(
-                                            "{arrow} Abgeschlossen ({})",
-                                            done.len()
-                                        ))
-                                        .strong(),
-                                    )
-                                    .frame(false),
-                                )
-                                .clicked()
-                            {
-                                self.tasks.show_completed = !self.tasks.show_completed;
-                            }
-                            if self.tasks.show_completed {
-                                for t in done {
-                                    self.task_row(ui, t, &mut save);
-                                }
-                            }
+                                egui::Stroke::NONE
+                            },
+                            ..Default::default()
+                        },
+                    );
+                    job.wrap = egui::text::TextWrapping {
+                        max_width: cols[2].1 - 12.0,
+                        max_rows: 1,
+                        break_anywhere: true,
+                        overflow_character: Some('…'),
+                    };
+                    let g = ui.painter().layout_job(job);
+                    ui.painter()
+                        .galley(egui::pos2(x + 6.0, cy - g.size().y / 2.0), g, color);
+                    x += cols[2].1;
+                    let due = due_date(task)
+                        .map(|d| {
+                            format!(
+                                "{} {}",
+                                super::WEEKDAYS[d.weekday().num_days_from_monday() as usize],
+                                d.format("%d.%m.%Y")
+                            )
+                        })
+                        .unwrap_or_else(|| "Ohne".into());
+                    ui.painter().text(
+                        egui::pos2(x + 6.0, cy),
+                        egui::Align2::LEFT_CENTER,
+                        due,
+                        egui::FontId::proportional(12.5),
+                        color,
+                    );
+                    x += cols[3].1;
+                    let folder = super::one_line(
+                        ui.painter(),
+                        &task.list_name,
+                        egui::FontId::proportional(12.5),
+                        t.text_weak,
+                        cols[4].1 - 12.0,
+                    );
+                    ui.painter().galley(
+                        egui::pos2(x + 6.0, cy - folder.size().y / 2.0),
+                        folder,
+                        t.text_weak,
+                    );
+                    x += cols[4].1 + cols[5].1;
+                    let flag = egui::Rect::from_center_size(
+                        egui::pos2(x + 16.0, cy),
+                        egui::vec2(18.0, 18.0),
+                    );
+                    let (icon, fc) = if task.completed {
+                        (ph::CHECK, IC_GREEN)
+                    } else if task.due.is_empty() {
+                        (ph::FLAG, t.text_weak)
+                    } else {
+                        (egui_phosphor::fill::FLAG, t.flag)
+                    };
+                    ui.painter().text(
+                        flag.center(),
+                        egui::Align2::CENTER_CENTER,
+                        icon,
+                        chrome::fill_font(13.0),
+                        fc,
+                    );
+
+                    let pos = resp.interact_pointer_pos();
+                    if resp.clicked() {
+                        if pos.is_some_and(|p| {
+                            cb.expand(4.0).contains(p) || flag.expand(4.0).contains(p)
+                        }) {
+                            save.push(Task {
+                                completed: !task.completed,
+                                ..task.clone()
+                            });
+                        } else {
+                            self.tasks.selected = Some(task.id);
                         }
-                        if visible.is_empty() {
-                            ui.add_space(40.0);
-                            ui.vertical_centered(|ui| {
-                                ui.label(
-                                    RichText::new("✔\n\nKeine Aufgaben – genieß den Tag!")
-                                        .size(15.0)
-                                        .weak(),
-                                )
+                    }
+                    if resp.double_clicked() {
+                        open = Some(task.clone());
+                    }
+                    resp.context_menu(|ui| {
+                        if chrome::menu_item(
+                            ui,
+                            ph::CHECK,
+                            IC_GREEN,
+                            if task.completed {
+                                "Als nicht erledigt markieren"
+                            } else {
+                                "Als erledigt markieren"
+                            },
+                        ) {
+                            save.push(Task {
+                                completed: !task.completed,
+                                ..task.clone()
                             });
                         }
+                        if chrome::menu_item(
+                            ui,
+                            "!",
+                            IC_RED,
+                            if task.important {
+                                "Wichtigkeit: normal"
+                            } else {
+                                "Wichtigkeit: hoch"
+                            },
+                        ) {
+                            save.push(Task {
+                                important: !task.important,
+                                ..task.clone()
+                            });
+                        }
+                        if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Öffnen") {
+                            open = Some(task.clone());
+                        }
                     });
+                }
+                if tasks.is_empty() {
+                    ui.add_space(20.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            RichText::new("In dieser Ansicht gibt es keine Elemente.")
+                                .color(t.text_weak),
+                        )
+                    });
+                }
             });
-
-        for t in save {
-            if self.tasks.detail.as_ref().is_some_and(|d| d.id == t.id) {
-                self.tasks.detail = Some(t.clone());
-            }
-            self.spawn(None, move |st, _| async move {
-                providers::save_task(&st, t).await.map(|_| ())
-            });
+        for x in save {
+            self.save_task(x, None);
         }
-        if let Some(id) = delete {
-            self.tasks.selected = None;
-            self.tasks.detail = None;
-            self.spawn(Some("Aufgabe gelöscht"), move |st, _| async move {
+        if let Some(x) = open {
+            self.open_window(Win::Task(TaskEditor::new(x)));
+        }
+    }
+
+    pub(super) fn task_window(
+        &mut self,
+        ctx: &egui::Context,
+        vid: egui::ViewportId,
+        ed: &mut TaskEditor,
+    ) -> bool {
+        let th = self.t;
+        let title = format!(
+            "{} - Aufgabe",
+            if ed.t.title.trim().is_empty() {
+                "Unbenannt"
+            } else {
+                ed.t.title.trim()
+            }
+        );
+        let is_new = ed.t.id == 0;
+        let accounts = self.data.accounts.clone();
+        let mut save = false;
+        let mut delete = false;
+        let closed = chrome::native_window(ctx, vid, &title, [760.0, 540.0], &th, |ui| {
+            chrome::item_ribbon(ui, &th, "Aufgabe", |ui| {
+                chrome::group(ui, &th, "Aktionen", |ui| {
+                    if chrome::large(
+                        ui,
+                        &th,
+                        ph::FLOPPY_DISK,
+                        IC_PURPLE,
+                        "Speichern &\nschließen",
+                        true,
+                    )
+                    .clicked()
+                    {
+                        save = true;
+                    }
+                    if chrome::large(ui, &th, ph::X, IC_RED, "Löschen", !is_new).clicked() {
+                        delete = true;
+                    }
+                });
+                chrome::group(ui, &th, "Aufgabe verwalten", |ui| {
+                    if chrome::large(
+                        ui,
+                        &th,
+                        ph::CHECK,
+                        IC_GREEN,
+                        "Als erledigt\nmarkieren",
+                        !ed.t.completed,
+                    )
+                    .clicked()
+                    {
+                        ed.t.completed = true;
+                        save = true;
+                    }
+                });
+                chrome::group(ui, &th, "Kategorien", |ui| {
+                    chrome::column(ui, |ui| {
+                        if chrome::small(
+                            ui,
+                            &th,
+                            "!",
+                            IC_RED,
+                            if ed.t.important {
+                                "Wichtigkeit: hoch  \u{E182}"
+                            } else {
+                                "Wichtigkeit: hoch"
+                            },
+                            true,
+                        )
+                        .clicked()
+                        {
+                            ed.t.important = !ed.t.important;
+                        }
+                    });
+                });
+            });
+            egui::Frame::new()
+                .inner_margin(egui::Margin::symmetric(16, 12))
+                .show(ui, |ui| {
+                    egui::Grid::new("task_form")
+                        .num_columns(2)
+                        .spacing([12.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label("Betreff");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut ed.t.title).desired_width(500.0),
+                            );
+                            ui.end_row();
+                            ui.label("Fällig am");
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut ed.has_due, "");
+                                ui.add_enabled(
+                                    ed.has_due,
+                                    egui_extras::DatePickerButton::new(&mut ed.due)
+                                        .id_salt("task_due")
+                                        .format("%d.%m.%Y"),
+                                );
+                                if !ed.has_due {
+                                    ui.label(RichText::new("Ohne").color(th.text_weak));
+                                }
+                            });
+                            ui.end_row();
+                            ui.label("Status");
+                            egui::ComboBox::from_id_salt("task_status")
+                                .selected_text(if ed.t.completed {
+                                    "Erledigt"
+                                } else {
+                                    "Nicht begonnen"
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut ed.t.completed,
+                                        false,
+                                        "Nicht begonnen",
+                                    );
+                                    ui.selectable_value(&mut ed.t.completed, true, "Erledigt");
+                                });
+                            ui.end_row();
+                            ui.label("Priorität");
+                            egui::ComboBox::from_id_salt("task_prio")
+                                .selected_text(if ed.t.important { "Hoch" } else { "Normal" })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut ed.t.important, false, "Normal");
+                                    ui.selectable_value(&mut ed.t.important, true, "Hoch");
+                                });
+                            ui.end_row();
+                            if is_new {
+                                ui.label("Speichern in");
+                                egui::ComboBox::from_id_salt("task_acc")
+                                    .selected_text(
+                                        accounts
+                                            .iter()
+                                            .find(|a| a.id == ed.t.account_id)
+                                            .map(|a| a.email.clone())
+                                            .unwrap_or_default(),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        for a in &accounts {
+                                            if ui
+                                                .selectable_value(
+                                                    &mut ed.t.account_id,
+                                                    a.id,
+                                                    &a.email,
+                                                )
+                                                .clicked()
+                                            {
+                                                ed.t.list_name.clear();
+                                                ed.t.list_remote_id.clear();
+                                            }
+                                        }
+                                    });
+                                ui.end_row();
+                            }
+                        });
+                    ui.add_space(6.0);
+                    ui.separator();
+                    let (w, h) = (ui.available_width(), ui.available_height().max(100.0));
+                    ui.add_sized(
+                        [w, h - 4.0],
+                        egui::TextEdit::multiline(&mut ed.t.notes).frame(false),
+                    );
+                });
+        });
+        if save {
+            if ed.t.title.trim().is_empty() {
+                self.toast("Bitte einen Betreff eingeben.", true);
+                return false;
+            }
+            let mut task = ed.t.clone();
+            task.due = if ed.has_due {
+                ed.due.format("%Y-%m-%d").to_string()
+            } else {
+                String::new()
+            };
+            self.save_task(task, Some("Aufgabe gespeichert."));
+            return true;
+        }
+        if delete {
+            let id = ed.t.id;
+            self.spawn(Some("Aufgabe gelöscht."), move |st, _| async move {
                 providers::delete_task(&st, id).await
             });
+            return true;
         }
-    }
-
-    fn task_list_row(&mut self, ui: &mut egui::Ui, l: TaskList, count: usize) {
-        let active = self.tasks.list == l;
-        let w = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 32.0), Sense::click());
-        let v = ui.visuals();
-        if active {
-            ui.painter().rect_filled(rect, 4, v.selection.bg_fill);
-        } else if resp.hovered() {
-            ui.painter()
-                .rect_filled(rect, 4, v.widgets.hovered.weak_bg_fill);
-        }
-        ui.painter().text(
-            rect.left_center() + egui::vec2(12.0, 0.0),
-            egui::Align2::LEFT_CENTER,
-            l.title(),
-            egui::FontId::proportional(14.0),
-            v.text_color(),
-        );
-        if count > 0 {
-            ui.painter().text(
-                rect.right_center() - egui::vec2(12.0, 0.0),
-                egui::Align2::RIGHT_CENTER,
-                count.to_string(),
-                egui::FontId::proportional(12.0),
-                v.weak_text_color(),
-            );
-        }
-        if resp.clicked() {
-            self.tasks.list = l;
-        }
-    }
-
-    fn task_row(&mut self, ui: &mut egui::Ui, t: &Task, save: &mut Vec<Task>) {
-        let w = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 48.0), Sense::click());
-        let v = ui.visuals().clone();
-        let fill = if self.tasks.selected == Some(t.id) {
-            v.selection.bg_fill
-        } else if resp.hovered() {
-            v.widgets.hovered.weak_bg_fill
-        } else {
-            v.faint_bg_color
-        };
-        ui.painter()
-            .rect_filled(rect.shrink2(egui::vec2(0.0, 2.0)), 4, fill);
-        // Completion circle.
-        let c = rect.left_center() + egui::vec2(20.0, 0.0);
-        let circle = egui::Rect::from_center_size(c, egui::vec2(22.0, 22.0));
-        let cr = ui.interact(circle, ui.id().with(("done", t.id)), Sense::click());
-        if t.completed {
-            ui.painter().circle_filled(c, 10.0, BRAND);
-            ui.painter().text(
-                c,
-                egui::Align2::CENTER_CENTER,
-                "✔",
-                egui::FontId::proportional(12.0),
-                Color32::WHITE,
-            );
-        } else {
-            ui.painter()
-                .circle_stroke(c, 10.0, egui::Stroke::new(1.5_f32, BRAND));
-            if cr.hovered() {
-                ui.painter().text(
-                    c,
-                    egui::Align2::CENTER_CENTER,
-                    "✔",
-                    egui::FontId::proportional(12.0),
-                    BRAND,
-                );
-            }
-        }
-        // Title + meta line.
-        let title_color = if t.completed {
-            v.weak_text_color()
-        } else {
-            v.text_color()
-        };
-        let mut title = egui::text::LayoutJob::default();
-        title.append(
-            &t.title,
-            0.0,
-            egui::TextFormat {
-                font_id: egui::FontId::proportional(14.0),
-                color: title_color,
-                strikethrough: if t.completed {
-                    egui::Stroke::new(1.0_f32, title_color)
-                } else {
-                    egui::Stroke::NONE
-                },
-                ..Default::default()
-            },
-        );
-        let g = ui.painter().layout_job(title);
-        ui.painter()
-            .galley(rect.left_center() + egui::vec2(42.0, -17.0), g, title_color);
-        let mut meta = vec![t.list_name.clone()];
-        let mut overdue = false;
-        if let Ok(d) = NaiveDate::parse_from_str(&t.due, "%Y-%m-%d") {
-            let today = super::today();
-            overdue = d < today && !t.completed;
-            meta.push(match (d - today).num_days() {
-                0 => "📅 Heute".into(),
-                1 => "📅 Morgen".into(),
-                -1 => "📅 Gestern".into(),
-                _ => format!("📅 {}", d.format("%d.%m.%Y")),
-            });
-        }
-        if t.my_day {
-            meta.push("☀ Mein Tag".into());
-        }
-        if !t.notes.is_empty() {
-            meta.push("🗒".into());
-        }
-        ui.painter().text(
-            rect.left_center() + egui::vec2(42.0, 10.0),
-            egui::Align2::LEFT_CENTER,
-            meta.join("  ·  "),
-            egui::FontId::proportional(12.0),
-            if overdue { DANGER } else { v.weak_text_color() },
-        );
-        // Importance star.
-        let sc = rect.right_center() - egui::vec2(22.0, 0.0);
-        let star = egui::Rect::from_center_size(sc, egui::vec2(24.0, 24.0));
-        let sr = ui.interact(star, ui.id().with(("star", t.id)), Sense::click());
-        ui.painter().text(
-            sc,
-            egui::Align2::CENTER_CENTER,
-            if t.important { "★" } else { "☆" },
-            egui::FontId::proportional(18.0),
-            if t.important {
-                BRAND
-            } else {
-                v.weak_text_color()
-            },
-        );
-
-        if cr.clicked() {
-            save.push(Task {
-                completed: !t.completed,
-                ..t.clone()
-            });
-        } else if sr.clicked() {
-            save.push(Task {
-                important: !t.important,
-                ..t.clone()
-            });
-        } else if resp.clicked() {
-            self.tasks.selected = Some(t.id);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn smart_lists() {
-        let today = crate::ui::today().format("%Y-%m-%d").to_string();
-        let t = Task {
-            due: today,
-            ..Default::default()
-        };
-        assert!(TaskList::MyDay.matches(&t));
-        assert!(TaskList::Planned.matches(&t));
-        assert!(!TaskList::Important.matches(&t));
-        let n = Task {
-            account_id: 2,
-            list_name: "Einkauf".into(),
-            ..Default::default()
-        };
-        assert!(TaskList::Named(2, "Einkauf".into()).matches(&n));
-        assert!(!TaskList::Named(1, "Einkauf".into()).matches(&n));
+        closed
     }
 }

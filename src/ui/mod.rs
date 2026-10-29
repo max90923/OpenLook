@@ -1,17 +1,21 @@
-//! Native GUI (egui). Layout follows Outlook: blue title bar with search,
-//! app rail on the left (Mail, Kalender, Personen, To Do) and the module's
-//! panes next to it.
+//! Native GUI modelled on the classic Outlook desktop client: own title bar
+//! with quick access toolbar, ribbon, folder pane with module switcher,
+//! content panes, status bar, File backstage, and real OS windows for
+//! messages, appointments, contacts, tasks, options and reminders.
 //!
 //! The UI thread only reads from SQLite (fast, local). Everything that may
-//! touch the network is spawned on the Tokio runtime via [`App::spawn`]; its
-//! result comes back through a channel as a [`Done`] and triggers a reload.
+//! touch the network runs on the Tokio runtime via [`App::spawn`]; results
+//! come back through a channel as [`Done`] and trigger a reload.
 
+mod backstage;
 mod calendar;
+mod chrome;
 mod compose;
 mod mail;
 mod people;
-mod settings;
+mod reminders;
 mod tasks;
+mod theme;
 
 use std::{
     future::Future,
@@ -20,13 +24,12 @@ use std::{
 };
 
 use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, Color32, RichText, Sense};
+use egui_phosphor::regular as ph;
 
 use crate::{db, models::*, providers, state::AppState};
-
-pub const BRAND: Color32 = Color32::from_rgb(15, 108, 189);
-pub const BRAND_DARK: Color32 = Color32::from_rgb(10, 46, 79);
-pub const DANGER: Color32 = Color32::from_rgb(197, 15, 31);
+use chrome::{IC_BLUE, IC_GREEN, IC_PURPLE, IC_YELLOW};
+use theme::{Design, Theme};
 
 pub const WEEKDAYS: [&str; 7] = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 pub const WEEKDAYS_LONG: [&str; 7] = [
@@ -54,32 +57,32 @@ pub const MONTHS: [&str; 12] = [
 ];
 /// Outlook's default colour categories.
 pub const CATEGORIES: [(&str, Color32); 6] = [
-    ("Rot", Color32::from_rgb(232, 17, 35)),
-    ("Orange", Color32::from_rgb(247, 99, 12)),
-    ("Gelb", Color32::from_rgb(255, 185, 0)),
-    ("Grün", Color32::from_rgb(16, 124, 16)),
-    ("Blau", Color32::from_rgb(0, 120, 212)),
-    ("Lila", Color32::from_rgb(136, 23, 152)),
+    ("Rote Kategorie", Color32::from_rgb(232, 17, 35)),
+    ("Orange Kategorie", Color32::from_rgb(247, 99, 12)),
+    ("Gelbe Kategorie", Color32::from_rgb(255, 185, 0)),
+    ("Grüne Kategorie", Color32::from_rgb(16, 124, 16)),
+    ("Blaue Kategorie", Color32::from_rgb(0, 120, 212)),
+    ("Lila Kategorie", Color32::from_rgb(136, 23, 152)),
 ];
 
 pub fn category_color(name: &str) -> Color32 {
     CATEGORIES
         .iter()
-        .find(|c| c.0 == name)
+        .find(|c| c.0 == name || c.0.starts_with(&name.chars().take(3).collect::<String>()))
         .map(|c| c.1)
-        .unwrap_or(BRAND)
+        .unwrap_or(IC_BLUE)
 }
 
 /// Result of a background job.
 pub enum Done {
-    /// Success; optional toast text. Always triggers a reload.
+    /// Success; optional status text. Always triggers a reload.
     Ok(Option<String>),
     Err(String),
-    /// A composer's mail was sent; close that window.
+    /// A message window's mail was sent; close that window.
     Sent(u64),
-    /// Sending failed; keep the composer open.
+    /// Sending failed; keep the message window open.
     SendFailed(u64, String),
-    /// Microsoft sign-in: show this code to the user.
+    /// Microsoft sign-in: show this code to the user (empty = finished).
     DeviceCode {
         user_code: String,
         uri: String,
@@ -94,6 +97,48 @@ pub enum Module {
     Tasks,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ReadingPane {
+    Right,
+    Bottom,
+    Off,
+}
+
+/// User preferences (stored in the `settings` table).
+pub struct Prefs {
+    pub design: Design,
+    pub signature: String,
+    pub reading_pane: ReadingPane,
+    pub preview: bool,
+    pub mark_read: bool,
+    pub work_start: u32,
+    pub work_end: u32,
+    pub zoom: f32,
+}
+
+impl Prefs {
+    fn load(c: &rusqlite::Connection) -> Self {
+        let s = db::get_settings(c).unwrap_or_default();
+        let str_ = |k: &str| s.get(k).and_then(|v| v.as_str()).map(String::from);
+        let num = |k: &str, d: f64| s.get(k).and_then(|v| v.as_f64()).unwrap_or(d);
+        let flag = |k: &str, d: bool| s.get(k).and_then(|v| v.as_bool()).unwrap_or(d);
+        Prefs {
+            design: Design::parse(&str_("design").unwrap_or_default()),
+            signature: str_("signature").unwrap_or_default(),
+            reading_pane: match str_("reading_pane").as_deref() {
+                Some("bottom") => ReadingPane::Bottom,
+                Some("off") => ReadingPane::Off,
+                _ => ReadingPane::Right,
+            },
+            preview: flag("preview", true),
+            mark_read: flag("mark_read", true),
+            work_start: num("work_start", 8.0) as u32,
+            work_end: num("work_end", 17.0) as u32,
+            zoom: num("zoom", 1.0) as f32,
+        }
+    }
+}
+
 /// Data shared by all modules, reloaded from the database when `dirty`.
 #[derive(Default)]
 pub struct Data {
@@ -101,7 +146,6 @@ pub struct Data {
     pub folders: Vec<Folder>,
     pub contacts: Vec<Contact>,
     pub tasks: Vec<Task>,
-    pub signature: String,
 }
 
 impl Data {
@@ -116,7 +160,60 @@ impl Data {
             .map(|a| a.id)
             .unwrap_or(1)
     }
+
+    /// The account used for new calendar items, contacts and tasks:
+    /// the first Microsoft account, else the local one.
+    pub fn default_pim_account(&self) -> i64 {
+        self.accounts
+            .iter()
+            .find(|a| a.kind == AccountKind::Graph)
+            .map(|a| a.id)
+            .unwrap_or_else(|| self.local_account_id())
+    }
 }
+
+/// A separate OS window.
+pub enum Win {
+    Compose(compose::Composer),
+    Event(calendar::EventEditor),
+    Contact(people::ContactEditor),
+    Task(tasks::TaskEditor),
+    Options(backstage::OptionsWin),
+    AddAccount(backstage::AddAccountWin),
+}
+
+pub struct WinEntry {
+    pub id: u64,
+    pub win: Win,
+}
+
+/// Commands reachable from "Was möchten Sie tun?".
+#[derive(Clone, Copy)]
+enum Cmd {
+    NewMail,
+    NewEvent,
+    NewContact,
+    NewTask,
+    SyncAll,
+    Options,
+    AddAccount,
+    Go(Module),
+    Design,
+}
+
+const COMMANDS: [(&str, Cmd); 11] = [
+    ("Neue E-Mail", Cmd::NewMail),
+    ("Neuer Termin", Cmd::NewEvent),
+    ("Neuer Kontakt", Cmd::NewContact),
+    ("Neue Aufgabe", Cmd::NewTask),
+    ("Senden/Empfangen – alle Ordner", Cmd::SyncAll),
+    ("Optionen", Cmd::Options),
+    ("Konto hinzufügen", Cmd::AddAccount),
+    ("E-Mail", Cmd::Go(Module::Mail)),
+    ("Kalender", Cmd::Go(Module::Calendar)),
+    ("Personen", Cmd::Go(Module::People)),
+    ("Design wechseln", Cmd::Design),
+];
 
 pub struct App {
     st: Arc<AppState>,
@@ -126,18 +223,25 @@ pub struct App {
     rx: mpsc::Receiver<Done>,
     busy: usize,
     dirty: bool,
-    dark: bool,
+    pub t: Theme,
+    pub prefs: Prefs,
     module: Module,
+    ribbon_tab: usize,
+    ribbon_collapsed: bool,
+    folder_pane_min: bool,
+    backstage: Option<backstage::Page>,
+    tell_me: String,
     search: String,
-    toast: Option<(String, bool, Instant)>,
+    status: (String, bool, Instant),
     data: Data,
     mail: mail::MailView,
     cal: calendar::CalendarView,
     people: people::PeopleView,
     tasks: tasks::TasksView,
-    settings: settings::SettingsView,
-    composers: Vec<compose::Composer>,
-    next_composer: u64,
+    reminders: reminders::Reminders,
+    windows: Vec<WinEntry>,
+    next_window: u64,
+    device_code: Option<(String, String)>,
 }
 
 impl App {
@@ -147,10 +251,8 @@ impl App {
         rt: tokio::runtime::Runtime,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
-        let dark = db::get_settings(&st.db())
-            .ok()
-            .and_then(|s| s.get("dark").and_then(|v| v.as_bool()))
-            .unwrap_or(false);
+        let prefs = Prefs::load(&st.db());
+        chrome::setup_fonts(&cc.egui_ctx);
         let mut app = Self {
             st,
             rt,
@@ -159,62 +261,56 @@ impl App {
             rx,
             busy: 0,
             dirty: true,
-            dark,
+            t: Theme::new(prefs.design),
+            prefs,
             module: Module::Mail,
+            ribbon_tab: 0,
+            ribbon_collapsed: false,
+            folder_pane_min: false,
+            backstage: None,
+            tell_me: String::new(),
             search: String::new(),
-            toast: None,
+            status: (
+                "Alle Ordner sind auf dem neuesten Stand.".into(),
+                false,
+                Instant::now(),
+            ),
             data: Data::default(),
             mail: Default::default(),
             cal: calendar::CalendarView::new(),
             people: Default::default(),
             tasks: Default::default(),
-            settings: Default::default(),
-            composers: vec![],
-            next_composer: 1,
+            reminders: Default::default(),
+            windows: vec![],
+            next_window: 1,
+            device_code: None,
         };
         app.apply_style();
         app.start_background_sync();
         app
     }
 
-    fn apply_style(&self) {
-        let mut v = if self.dark {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-        v.selection.bg_fill = if self.dark {
-            Color32::from_rgb(12, 59, 94)
-        } else {
-            Color32::from_rgb(207, 228, 250)
-        };
-        v.selection.stroke.color = if self.dark {
-            Color32::WHITE
-        } else {
-            Color32::from_rgb(36, 36, 36)
-        };
-        v.hyperlink_color = BRAND;
-        if !self.dark {
-            v.panel_fill = Color32::from_rgb(250, 250, 250);
-            v.window_fill = Color32::WHITE;
-        }
-        self.ctx.set_visuals(v);
+    fn apply_style(&mut self) {
+        self.t = Theme::new(self.prefs.design);
+        self.ctx.set_visuals(self.t.visuals());
+        self.ctx.set_zoom_factor(self.prefs.zoom);
         self.ctx.style_mut(|s| {
             use egui::{FontFamily::Proportional, FontId, TextStyle};
             s.text_styles
-                .insert(TextStyle::Small, FontId::new(12.0, Proportional));
+                .insert(TextStyle::Small, FontId::new(11.0, Proportional));
             s.text_styles
-                .insert(TextStyle::Body, FontId::new(14.0, Proportional));
+                .insert(TextStyle::Body, FontId::new(13.0, Proportional));
             s.text_styles
-                .insert(TextStyle::Button, FontId::new(14.0, Proportional));
+                .insert(TextStyle::Button, FontId::new(13.0, Proportional));
             s.text_styles
                 .insert(TextStyle::Heading, FontId::new(20.0, Proportional));
-            s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-            s.spacing.button_padding = egui::vec2(8.0, 4.0);
+            s.spacing.item_spacing = egui::vec2(6.0, 5.0);
+            s.spacing.button_padding = egui::vec2(8.0, 3.0);
+            s.spacing.interact_size.y = 22.0;
         });
     }
 
-    /// Initial sync and then every `MAILCRAFT_SYNC_MINUTES` (default 5).
+    /// Background "Senden/Empfangen" every `MAILCRAFT_SYNC_MINUTES` (default 5).
     fn start_background_sync(&mut self) {
         let minutes: u64 = std::env::var("MAILCRAFT_SYNC_MINUTES")
             .ok()
@@ -232,7 +328,7 @@ impl App {
         });
     }
 
-    /// Run a job on the background runtime. `ok` is shown as toast on success.
+    /// Run a job on the background runtime. `ok` is shown in the status bar.
     pub fn spawn<F, Fut>(&mut self, ok: Option<&str>, f: F)
     where
         F: FnOnce(Arc<AppState>, mpsc::Sender<Done>) -> Fut,
@@ -251,8 +347,16 @@ impl App {
         });
     }
 
+    /// Message in the status bar; errors stay longer and are shown in red.
     pub fn toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toast = Some((text.into(), error, Instant::now()));
+        self.status = (text.into(), error, Instant::now());
+    }
+
+    pub fn open_window(&mut self, win: Win) -> u64 {
+        let id = self.next_window;
+        self.next_window += 1;
+        self.windows.push(WinEntry { id, win });
+        id
     }
 
     fn handle_done(&mut self) {
@@ -273,19 +377,21 @@ impl App {
                 }
                 Done::Sent(id) => {
                     self.busy = self.busy.saturating_sub(1);
-                    self.composers.retain(|c| c.id != id);
-                    self.toast("Nachricht gesendet", false);
+                    self.windows.retain(|w| w.id != id);
+                    self.toast("Nachricht gesendet.", false);
                     self.dirty = true;
                 }
                 Done::SendFailed(id, e) => {
                     self.busy = self.busy.saturating_sub(1);
-                    if let Some(c) = self.composers.iter_mut().find(|c| c.id == id) {
-                        c.sending = false;
+                    for w in &mut self.windows {
+                        if let (true, Win::Compose(c)) = (w.id == id, &mut w.win) {
+                            c.sending = false;
+                        }
                     }
                     self.toast(format!("Senden fehlgeschlagen: {e}"), true);
                 }
                 Done::DeviceCode { user_code, uri } => {
-                    self.settings.device_code = Some((user_code, uri));
+                    self.device_code = (!user_code.is_empty()).then_some((user_code, uri));
                 }
             }
         }
@@ -298,10 +404,6 @@ impl App {
             self.data.folders = db::list_folders(&c)?;
             self.data.contacts = db::list_contacts(&c)?;
             self.data.tasks = db::list_tasks(&c)?;
-            self.data.signature = db::get_settings(&c)?
-                .get("signature")
-                .and_then(|v| v.as_str().map(String::from))
-                .unwrap_or_default();
             Ok(())
         })();
         drop(c);
@@ -320,167 +422,568 @@ impl App {
         }
     }
 
-    fn top_bar(&mut self, ctx: &egui::Context) {
-        let fill = if self.dark { BRAND_DARK } else { BRAND };
-        egui::TopBottomPanel::top("topbar")
-            .exact_height(48.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(fill)
-                    .inner_margin(egui::Margin::symmetric(12, 6)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
-                    ui.label(
-                        RichText::new("MailCraft")
-                            .size(17.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    );
-                    ui.add_space(80.0);
-                    let hint = match self.module {
-                        Module::Mail => "🔍 E-Mails durchsuchen",
-                        Module::Calendar => "🔍 Termine durchsuchen",
-                        Module::People => "🔍 Personen durchsuchen",
-                        Module::Tasks => "🔍 Aufgaben durchsuchen",
-                    };
-                    let search = ui.add(
-                        egui::TextEdit::singleline(&mut self.search)
-                            .hint_text(hint)
-                            .desired_width(ui.available_width().min(520.0) - 160.0)
-                            .margin(egui::Margin::symmetric(8, 6)),
-                    );
-                    if search.changed() && self.module == Module::Mail {
-                        self.reload_messages();
-                    }
-                    if ctx.input(|i| i.key_pressed(egui::Key::Slash)) && !ctx.wants_keyboard_input()
-                    {
-                        search.request_focus();
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let white = |s: &str| RichText::new(s).size(18.0).color(Color32::WHITE);
-                        if ui
-                            .add(egui::Button::new(white("⚙")).frame(false))
-                            .on_hover_text("Einstellungen")
-                            .clicked()
-                        {
-                            self.settings.open = true;
-                        }
-                        let theme = if self.dark { "☀" } else { "🌙" };
-                        if ui
-                            .add(egui::Button::new(white(theme)).frame(false))
-                            .on_hover_text("Design wechseln")
-                            .clicked()
-                        {
-                            self.dark = !self.dark;
-                            self.apply_style();
-                            self.save_setting("dark", serde_json::json!(self.dark));
-                        }
-                        if ui
-                            .add(egui::Button::new(white("🔄")).frame(false))
-                            .on_hover_text("Alle Konten synchronisieren (F9)")
-                            .clicked()
-                            || ctx.input(|i| i.key_pressed(egui::Key::F9))
-                        {
-                            self.spawn(
-                                Some("Synchronisierung abgeschlossen"),
-                                |st, _| async move {
-                                    providers::sync_all(&st).await;
-                                    Ok(())
-                                },
-                            );
-                        }
-                        if self.busy > 0 {
-                            ui.add(egui::Spinner::new().color(Color32::WHITE));
-                        }
-                    });
-                });
-            });
+    pub fn sync_all(&mut self) {
+        self.toast("Senden/Empfangen wird ausgeführt …", false);
+        self.spawn(
+            Some("Alle Ordner sind auf dem neuesten Stand."),
+            |st, _| async move {
+                providers::sync_all(&st).await;
+                Ok(())
+            },
+        );
     }
 
-    fn rail(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("rail")
-            .exact_width(56.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::symmetric(6, 10))
-                    .fill(ctx.style().visuals.panel_fill),
-            )
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    for (m, icon, tip) in [
-                        (Module::Mail, "✉", "E-Mail (Strg+1)"),
-                        (Module::Calendar, "📅", "Kalender (Strg+2)"),
-                        (Module::People, "👤", "Personen (Strg+3)"),
-                        (Module::Tasks, "✔", "To Do (Strg+4)"),
-                    ] {
-                        let active = self.module == m;
-                        let text = RichText::new(icon).size(22.0).color(if active {
-                            BRAND
-                        } else {
-                            ui.visuals().weak_text_color()
-                        });
-                        let r = ui.add_sized(
-                            [44.0, 44.0],
-                            egui::Button::new(text).frame(active).selected(active),
-                        );
-                        if r.on_hover_text(tip).clicked() {
-                            self.switch_module(m);
-                        }
-                        ui.add_space(4.0);
-                    }
-                });
-            });
-        let keys = [
-            (egui::Key::Num1, Module::Mail),
-            (egui::Key::Num2, Module::Calendar),
-            (egui::Key::Num3, Module::People),
-            (egui::Key::Num4, Module::Tasks),
-        ];
-        for (k, m) in keys {
-            if ctx.input(|i| i.modifiers.command && i.key_pressed(k)) {
-                self.switch_module(m);
+    fn run(&mut self, cmd: Cmd) {
+        match cmd {
+            Cmd::NewMail => self.open_composer(compose::ComposeKind::New),
+            Cmd::NewEvent => self.new_event_now(),
+            Cmd::NewContact => self.new_contact(),
+            Cmd::NewTask => self.new_task(),
+            Cmd::SyncAll => self.sync_all(),
+            Cmd::Options => self.open_options(),
+            Cmd::AddAccount => self.open_add_account(),
+            Cmd::Go(m) => self.switch_module(m),
+            Cmd::Design => {
+                self.prefs.design = if self.prefs.design == Design::Bunt {
+                    Design::Schwarz
+                } else {
+                    Design::Bunt
+                };
+                self.save_setting("design", serde_json::json!(self.prefs.design.key()));
+                self.apply_style();
             }
         }
     }
 
-    fn switch_module(&mut self, m: Module) {
+    pub fn switch_module(&mut self, m: Module) {
         if self.module != m {
             self.module = m;
+            self.ribbon_tab = 0;
             self.search.clear();
             self.dirty = true;
         }
     }
 
-    fn toast_ui(&mut self, ctx: &egui::Context) {
-        let Some((text, error, at)) = &self.toast else {
-            return;
+    fn window_title(&self) -> String {
+        let place = match self.module {
+            Module::Mail => {
+                let f = self
+                    .mail
+                    .folder_id
+                    .and_then(|id| self.data.folders.iter().find(|f| f.id == id));
+                match f {
+                    Some(f) => format!(
+                        "{} - {}",
+                        f.name,
+                        self.data
+                            .account(f.account_id)
+                            .map(|a| a.email.as_str())
+                            .unwrap_or_default()
+                    ),
+                    None => "E-Mail".into(),
+                }
+            }
+            Module::Calendar => "Kalender".into(),
+            Module::People => "Kontakte".into(),
+            Module::Tasks => "Aufgaben".into(),
         };
-        let ttl = if *error { 8.0 } else { 3.5 };
-        if at.elapsed().as_secs_f32() > ttl {
-            self.toast = None;
-            return;
-        }
-        ctx.request_repaint_after(Duration::from_millis(250));
-        let (text, error) = (text.clone(), *error);
-        egui::Area::new(egui::Id::new("toast"))
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -28.0))
-            .order(egui::Order::Foreground)
+        format!("{place} - MailCraft")
+    }
+
+    // ------------------------------------------------------------ chrome
+
+    fn chrome(&mut self, ctx: &egui::Context) {
+        let t = self.t;
+        let title = self.window_title();
+        egui::TopBottomPanel::top("chrome")
+            .frame(egui::Frame::new().fill(t.band))
+            .show_separator_line(false)
             .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(if error {
-                        DANGER
-                    } else {
-                        Color32::from_gray(50)
-                    })
-                    .corner_radius(6)
-                    .inner_margin(egui::Margin::symmetric(16, 10))
-                    .show(ui, |ui| {
-                        ui.set_max_width(700.0);
-                        ui.label(RichText::new(text).color(Color32::WHITE));
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let mut sync = false;
+                let mut undo_ribbon = false;
+                if chrome::title_bar(ui, &t, &title, |ui| {
+                    ui.label(RichText::new(ph::ENVELOPE_SIMPLE).size(16.0));
+                    ui.add_space(6.0);
+                    sync = chrome::qat_button(
+                        ui,
+                        &t,
+                        ph::ARROWS_CLOCKWISE,
+                        "Senden/Empfangen – alle Ordner (F9)",
+                    );
+                    undo_ribbon = chrome::qat_button(
+                        ui,
+                        &t,
+                        ph::CARET_LINE_DOWN,
+                        "Menüband anzeigen/ausblenden (Strg+F1)",
+                    );
+                }) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                if sync || ctx.input(|i| i.key_pressed(egui::Key::F9)) {
+                    self.sync_all();
+                }
+                if undo_ribbon || ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F1))
+                {
+                    self.ribbon_collapsed = !self.ribbon_collapsed;
+                }
+                if self.backstage.is_some() {
+                    return;
+                }
+                let tabs: &[&str] = match self.module {
+                    Module::Mail => &["Start", "Senden/Empfangen", "Ordner", "Ansicht", "Hilfe"],
+                    _ => &["Start", "Senden/Empfangen", "Ordner", "Ansicht", "Hilfe"],
+                };
+                let mut tab = self.ribbon_tab;
+                let mut tell = String::new();
+                std::mem::swap(&mut tell, &mut self.tell_me);
+                let mut chosen = None;
+                let file = chrome::ribbon_tabs(ui, &t, tabs, &mut tab, |ui| {
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut tell)
+                            .hint_text(
+                                RichText::new(format!("{}  Was möchten Sie tun?", ph::LIGHTBULB))
+                                    .color(t.band_text),
+                            )
+                            .desired_width(220.0)
+                            .frame(false)
+                            .text_color(t.band_text),
+                    );
+                    let needle = tell.trim().to_lowercase();
+                    if r.has_focus() && !needle.is_empty() {
+                        egui::Popup::from_response(&r).open(true).show(|ui| {
+                            ui.set_min_width(260.0);
+                            for (label, cmd) in COMMANDS
+                                .iter()
+                                .filter(|(l, _)| l.to_lowercase().contains(&needle))
+                            {
+                                if ui.add(egui::Button::new(*label).frame(false)).clicked()
+                                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                {
+                                    chosen = Some(*cmd);
+                                }
+                            }
+                        });
+                    }
+                });
+                self.tell_me = tell;
+                if let Some(c) = chosen {
+                    self.tell_me.clear();
+                    self.run(c);
+                }
+                if file {
+                    self.backstage = Some(backstage::Page::Info);
+                }
+                if tab != self.ribbon_tab {
+                    self.ribbon_tab = tab;
+                    self.ribbon_collapsed = false;
+                }
+                if !self.ribbon_collapsed {
+                    chrome::ribbon_body(ui, &t, |ui| match self.module {
+                        Module::Mail => self.mail_ribbon(ui),
+                        Module::Calendar => self.calendar_ribbon(ui),
+                        Module::People => self.people_ribbon(ui),
+                        Module::Tasks => self.tasks_ribbon(ui),
                     });
+                }
             });
+    }
+
+    /// Shared ribbon tabs: Senden/Empfangen, Ordner, Ansicht, Hilfe.
+    pub fn common_ribbon(&mut self, ui: &mut egui::Ui) -> bool {
+        let t = self.t;
+        match self.ribbon_tab {
+            1 => {
+                chrome::group(ui, &t, "Senden und Empfangen", |ui| {
+                    if chrome::large(
+                        ui,
+                        &t,
+                        ph::ARROWS_CLOCKWISE,
+                        IC_GREEN,
+                        "Senden/Empfangen\nalle Ordner",
+                        true,
+                    )
+                    .clicked()
+                    {
+                        self.sync_all();
+                    }
+                    let acc = self.current_account();
+                    if chrome::large(
+                        ui,
+                        &t,
+                        ph::FOLDER_SIMPLE,
+                        IC_YELLOW,
+                        "Ordner\naktualisieren",
+                        acc.is_some(),
+                    )
+                    .clicked()
+                    {
+                        if let Some(id) = acc {
+                            self.spawn(Some("Ordner aktualisiert."), move |st, _| async move {
+                                providers::sync(&st, id).await
+                            });
+                        }
+                    }
+                });
+                true
+            }
+            2 => {
+                chrome::group(ui, &t, "Konten", |ui| {
+                    if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Konto\nhinzufügen", true)
+                        .clicked()
+                    {
+                        self.open_add_account();
+                    }
+                    if chrome::large(
+                        ui,
+                        &t,
+                        ph::GEAR,
+                        chrome::IC_GREY,
+                        "Konto-\neinstellungen",
+                        true,
+                    )
+                    .clicked()
+                    {
+                        self.backstage = Some(backstage::Page::Info);
+                    }
+                });
+                true
+            }
+            3 => {
+                chrome::group(ui, &t, "Design", |ui| {
+                    let label = if self.prefs.design == Design::Bunt {
+                        "Design:\nSchwarz"
+                    } else {
+                        "Design:\nBunt"
+                    };
+                    if chrome::large(ui, &t, ph::PALETTE, IC_PURPLE, label, true).clicked() {
+                        self.run(Cmd::Design);
+                    }
+                });
+                chrome::group(ui, &t, "Layout", |ui| {
+                    let r = chrome::large(
+                        ui,
+                        &t,
+                        ph::SIDEBAR,
+                        IC_BLUE,
+                        "Ordnerbereich\n\u{E136}",
+                        true,
+                    );
+                    chrome::menu(&r, |ui| {
+                        if ui.radio(!self.folder_pane_min, "Normal").clicked() {
+                            self.folder_pane_min = false;
+                            ui.close();
+                        }
+                        if ui.radio(self.folder_pane_min, "Minimiert").clicked() {
+                            self.folder_pane_min = true;
+                            ui.close();
+                        }
+                    });
+                });
+                chrome::group(ui, &t, "Zoom", |ui| {
+                    chrome::column(ui, |ui| {
+                        for (label, z) in [("100 %", 1.0), ("125 %", 1.25), ("150 %", 1.5)] {
+                            if chrome::small(
+                                ui,
+                                &t,
+                                ph::MAGNIFYING_GLASS_PLUS,
+                                IC_BLUE,
+                                label,
+                                true,
+                            )
+                            .clicked()
+                            {
+                                self.set_zoom(z);
+                            }
+                        }
+                    });
+                });
+                false
+            }
+            4 => {
+                chrome::group(ui, &t, "Hilfe", |ui| {
+                    let r = chrome::large(
+                        ui,
+                        &t,
+                        ph::KEYBOARD,
+                        chrome::IC_GREY,
+                        "Tasten-\nkombinationen",
+                        true,
+                    );
+                    chrome::menu(&r, |ui| {
+                        egui::Grid::new("keys")
+                            .num_columns(2)
+                            .spacing([16.0, 4.0])
+                            .show(ui, |ui| {
+                                for (k, d) in [
+                                    ("Strg+N", "Neues Element"),
+                                    ("Strg+R / Strg+Umschalt+R", "Antworten / Allen antworten"),
+                                    ("Strg+F", "Weiterleiten"),
+                                    ("Entf", "Löschen"),
+                                    ("Strg+Q / Strg+U", "Als gelesen / ungelesen markieren"),
+                                    ("Einfg", "Zur Nachverfolgung kennzeichnen"),
+                                    ("Strg+E", "Suchen"),
+                                    ("Alt+S", "Senden (im Nachrichtenfenster)"),
+                                    ("Strg+1 … 4", "E-Mail, Kalender, Personen, Aufgaben"),
+                                    ("F9", "Senden/Empfangen – alle Ordner"),
+                                    ("Strg+F1", "Menüband ein-/ausblenden"),
+                                ] {
+                                    ui.label(RichText::new(k).strong());
+                                    ui.label(d);
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                    let r = chrome::large(ui, &t, ph::INFO, IC_BLUE, "Info", true);
+                    chrome::menu(&r, |ui| {
+                        ui.label(RichText::new("MailCraft").size(18.0).strong());
+                        ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                        ui.label("E-Mail, Kalender, Personen und Aufgaben –\nIMAP/SMTP und Microsoft 365.");
+                    });
+                });
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn set_zoom(&mut self, z: f32) {
+        self.prefs.zoom = z.clamp(0.5, 2.0);
+        self.ctx.set_zoom_factor(self.prefs.zoom);
+        self.save_setting("zoom", serde_json::json!(self.prefs.zoom));
+    }
+
+    /// Account of the selected mail folder.
+    fn current_account(&self) -> Option<i64> {
+        self.mail
+            .folder_id
+            .and_then(|id| self.data.folders.iter().find(|f| f.id == id))
+            .map(|f| f.account_id)
+    }
+
+    fn status_bar(&mut self, ctx: &egui::Context) {
+        let t = self.t;
+        egui::TopBottomPanel::bottom("status")
+            .exact_height(24.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(t.band)
+                    .inner_margin(egui::Margin::symmetric(10, 0)),
+            )
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                ui.style_mut().visuals.override_text_color = Some(t.band_text);
+                ui.horizontal_centered(|ui| {
+                    let small = |s: String| RichText::new(s).size(12.0);
+                    match self.module {
+                        Module::Mail => {
+                            let (n, u) = (self.mail.count(), self.mail.unread());
+                            ui.label(small(format!("Elemente: {n}")));
+                            ui.add_space(14.0);
+                            if u > 0 {
+                                ui.label(small(format!("Ungelesen: {u}")));
+                            }
+                        }
+                        Module::Calendar => {
+                            ui.label(small(format!("Elemente: {}", self.cal.count())));
+                        }
+                        Module::People => {
+                            ui.label(small(format!("Elemente: {}", self.data.contacts.len())));
+                        }
+                        Module::Tasks => {
+                            let open = self.data.tasks.iter().filter(|t| !t.completed).count();
+                            ui.label(small(format!("Elemente: {}", self.data.tasks.len())));
+                            ui.add_space(14.0);
+                            ui.label(small(format!("Nicht erledigt: {open}")));
+                        }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Zoom slider like Office.
+                        let mut z = (self.prefs.zoom * 100.0).round();
+                        ui.label(small(format!("{z:.0} %")));
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut z, 50.0..=200.0)
+                                    .show_value(false)
+                                    .step_by(10.0),
+                            )
+                            .changed()
+                        {
+                            self.set_zoom(z / 100.0);
+                        }
+                        ui.add_space(12.0);
+                        let connected = self
+                            .data
+                            .accounts
+                            .iter()
+                            .any(|a| a.kind != AccountKind::Local);
+                        let err = self.data.accounts.iter().find_map(|a| a.last_error.clone());
+                        if let Some(e) = err {
+                            ui.label(small(format!("{}  Getrennt", ph::WARNING)))
+                                .on_hover_text(e);
+                        } else if connected {
+                            ui.label(small(format!("{}  Verbunden", ph::PLUG)));
+                        } else {
+                            ui.label(small(format!("{}  Nur lokal", ph::DESKTOP)));
+                        }
+                        ui.add_space(16.0);
+                        let (text, error, at) = &self.status;
+                        let shown = if self.busy > 0 {
+                            "Senden/Empfangen wird ausgeführt …".to_string()
+                        } else if at.elapsed() < Duration::from_secs(if *error { 30 } else { 6 }) {
+                            text.clone()
+                        } else {
+                            "Alle Ordner sind auf dem neuesten Stand.".into()
+                        };
+                        if self.busy > 0 {
+                            ui.add(egui::Spinner::new().size(12.0).color(t.band_text));
+                        }
+                        let rt = RichText::new(&shown).size(12.0);
+                        let r = ui.add(
+                            egui::Label::new(if *error && shown == *text {
+                                rt.background_color(t.danger)
+                            } else {
+                                rt
+                            })
+                            .truncate(),
+                        );
+                        if *error {
+                            r.on_hover_text(text);
+                        }
+                    });
+                });
+            });
+        if self.busy > 0 || self.status.2.elapsed() < Duration::from_secs(31) {
+            ctx.request_repaint_after(Duration::from_millis(500));
+        }
+    }
+
+    /// Folder pane with the module switcher at the bottom (Outlook 2016 style).
+    fn navigation(&mut self, ctx: &egui::Context) {
+        let t = self.t;
+        let width = if self.folder_pane_min { 44.0 } else { 240.0 };
+        egui::SidePanel::left("nav")
+            .resizable(!self.folder_pane_min)
+            .default_width(width)
+            .width_range(if self.folder_pane_min {
+                44.0..=44.0
+            } else {
+                180.0..=420.0
+            })
+            .frame(
+                egui::Frame::new()
+                    .fill(t.pane)
+                    .stroke(egui::Stroke::new(1.0_f32, t.border)),
+            )
+            .show(ctx, |ui| {
+                egui::TopBottomPanel::bottom("modules")
+                    .frame(
+                        egui::Frame::new()
+                            .fill(t.pane)
+                            .inner_margin(egui::Margin::symmetric(6, 6)),
+                    )
+                    .show_inside(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            for (m, icon, label) in [
+                                (Module::Mail, ph::ENVELOPE_SIMPLE, "E-Mail"),
+                                (Module::Calendar, ph::CALENDAR_BLANK, "Kalender"),
+                                (Module::People, ph::USERS, "Personen"),
+                                (Module::Tasks, ph::CHECK_SQUARE_OFFSET, "Aufgaben"),
+                            ] {
+                                let active = self.module == m;
+                                let color = if active { t.accent } else { t.text };
+                                let text = if self.folder_pane_min || ui.available_width() < 200.0 {
+                                    RichText::new(icon).size(20.0)
+                                } else {
+                                    RichText::new(label).size(13.5)
+                                };
+                                let r = ui.add(
+                                    egui::Button::new(text.color(color).strong_if(active))
+                                        .frame(false),
+                                );
+                                if r.on_hover_text(label).clicked() {
+                                    self.switch_module(m);
+                                }
+                            }
+                        });
+                    });
+                if self.folder_pane_min {
+                    ui.vertical_centered(|ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new(ph::CARET_RIGHT).size(16.0))
+                                    .frame(false),
+                            )
+                            .clicked()
+                        {
+                            self.folder_pane_min = false;
+                        }
+                    });
+                    return;
+                }
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new(ph::CARET_LEFT).size(14.0))
+                                    .frame(false),
+                            )
+                            .on_hover_text("Ordnerbereich minimieren")
+                            .clicked()
+                        {
+                            self.folder_pane_min = true;
+                        }
+                    });
+                });
+                match self.module {
+                    Module::Mail => self.mail_folders(ui),
+                    Module::Calendar => self.calendar_nav(ui),
+                    Module::People => self.people_nav(ui),
+                    Module::Tasks => self.tasks_nav(ui),
+                }
+            });
+        for (k, m) in [
+            (egui::Key::Num1, Module::Mail),
+            (egui::Key::Num2, Module::Calendar),
+            (egui::Key::Num3, Module::People),
+            (egui::Key::Num4, Module::Tasks),
+        ] {
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(k)) {
+                self.switch_module(m);
+            }
+        }
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
+            match self.module {
+                Module::Mail => self.open_composer(compose::ComposeKind::New),
+                Module::Calendar => self.new_event_now(),
+                Module::People => self.new_contact(),
+                Module::Tasks => self.new_task(),
+            }
+        }
+    }
+
+    fn windows_ui(&mut self, ctx: &egui::Context) {
+        let mut windows = std::mem::take(&mut self.windows);
+        let mut closed = vec![];
+        for w in &mut windows {
+            let vid = egui::ViewportId::from_hash_of(("mailcraft-window", w.id));
+            let close = match &mut w.win {
+                Win::Compose(c) => self.compose_window(ctx, vid, w.id, c),
+                Win::Event(e) => self.event_window(ctx, vid, e),
+                Win::Contact(c) => self.contact_window(ctx, vid, c),
+                Win::Task(t) => self.task_window(ctx, vid, t),
+                Win::Options(o) => self.options_window(ctx, vid, o),
+                Win::AddAccount(a) => self.add_account_window(ctx, vid, a),
+            };
+            if close {
+                closed.push(w.id);
+            }
+        }
+        // Windows opened while drawing (e.g. "Element öffnen") were pushed to `self.windows`.
+        windows.append(&mut self.windows);
+        windows.retain(|w| !closed.contains(&w.id));
+        self.windows = windows;
     }
 }
 
@@ -490,49 +993,42 @@ impl eframe::App for App {
         if self.dirty {
             self.reload();
         }
-        self.top_bar(ctx);
-        self.rail(ctx);
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(ctx.style().visuals.panel_fill)
-                    .inner_margin(egui::Margin {
-                        left: 0,
-                        right: 8,
-                        top: 8,
-                        bottom: 8,
-                    }),
-            )
-            .show(ctx, |ui| match self.module {
-                Module::Mail => self.mail_ui(ui),
-                Module::Calendar => self.calendar_ui(ui),
-                Module::People => self.people_ui(ui),
-                Module::Tasks => self.tasks_ui(ui),
-            });
-        self.composers_ui(ctx);
-        self.event_editor_ui(ctx);
-        self.contact_editor_ui(ctx);
-        self.settings_ui(ctx);
-        self.toast_ui(ctx);
+        chrome::resize_edges(ctx);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.window_title()));
+        self.chrome(ctx);
+        self.status_bar(ctx);
+        if self.backstage.is_some() {
+            self.backstage_ui(ctx);
+        } else {
+            self.navigation(ctx);
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(self.t.pane))
+                .show(ctx, |ui| match self.module {
+                    Module::Mail => self.mail_ui(ui),
+                    Module::Calendar => self.calendar_ui(ui),
+                    Module::People => self.people_ui(ui),
+                    Module::Tasks => self.tasks_ui(ui),
+                });
+        }
+        self.windows_ui(ctx);
+        self.reminders_ui(ctx);
     }
 }
 
 // ---------------------------------------------------------------- shared widgets & helpers
 
-pub fn pane_frame(ui: &egui::Ui) -> egui::Frame {
-    egui::Frame::new()
-        .fill(ui.visuals().window_fill)
-        .corner_radius(6)
-        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+trait StrongIf {
+    fn strong_if(self, on: bool) -> Self;
 }
 
-pub fn ribbon_button(ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool) -> egui::Response {
-    let text = RichText::new(format!("{icon}  {label}"));
-    ui.add_enabled(enabled, egui::Button::new(text).frame(false))
-}
-
-pub fn primary_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
-    ui.add(egui::Button::new(RichText::new(label).color(Color32::WHITE).strong()).fill(BRAND))
+impl StrongIf for RichText {
+    fn strong_if(self, on: bool) -> Self {
+        if on {
+            self.strong()
+        } else {
+            self
+        }
+    }
 }
 
 /// Lay out `text` on a single line, cut off with "…" at `width`.
@@ -557,6 +1053,37 @@ pub fn one_line(
     painter.layout_job(job)
 }
 
+/// Search box above lists ("Aktuelles Postfach durchsuchen").
+pub fn search_box(ui: &mut egui::Ui, t: &Theme, value: &mut String, hint: &str) -> egui::Response {
+    let mut resp = None;
+    egui::Frame::new()
+        .fill(t.pane)
+        .stroke(egui::Stroke::new(1.0_f32, t.border))
+        .inner_margin(egui::Margin::symmetric(6, 3))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let r = ui.add(
+                    egui::TextEdit::singleline(value)
+                        .hint_text(hint)
+                        .frame(false)
+                        .desired_width(ui.available_width() - 24.0),
+                );
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::E)) {
+                    r.request_focus();
+                }
+                if !value.is_empty() {
+                    if ui.add(egui::Button::new(ph::X).frame(false)).clicked() {
+                        value.clear();
+                    }
+                } else {
+                    ui.label(RichText::new(ph::MAGNIFYING_GLASS).color(t.accent));
+                }
+                resp = Some(r);
+            });
+        });
+    resp.unwrap()
+}
+
 pub fn initials(name: &str) -> String {
     let parts: Vec<&str> = name
         .split_whitespace()
@@ -576,10 +1103,10 @@ pub fn initials(name: &str) -> String {
 
 pub fn avatar_color(name: &str) -> Color32 {
     const PALETTE: [Color32; 8] = [
-        Color32::from_rgb(196, 49, 75),
+        Color32::from_rgb(164, 38, 44),
         Color32::from_rgb(0, 120, 212),
         Color32::from_rgb(16, 124, 16),
-        Color32::from_rgb(136, 23, 152),
+        Color32::from_rgb(135, 100, 184),
         Color32::from_rgb(202, 80, 16),
         Color32::from_rgb(3, 131, 135),
         Color32::from_rgb(92, 46, 145),
@@ -603,7 +1130,7 @@ pub fn paint_avatar(painter: &egui::Painter, center: egui::Pos2, radius: f32, na
 }
 
 pub fn avatar(ui: &mut egui::Ui, size: f32, name: &str) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), Sense::hover());
     paint_avatar(ui.painter(), rect.center(), size / 2.0, name);
 }
 
@@ -627,7 +1154,7 @@ pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
 
-/// Outlook-style list date: time for today, weekday for this week, else date.
+/// Outlook list date: time for today, "Mi 14:02" this week, else "29.10.2026".
 pub fn short_date(s: &str) -> String {
     let Some(d) = parse_utc(s) else {
         return String::new();
@@ -646,17 +1173,25 @@ pub fn short_date(s: &str) -> String {
     }
 }
 
+/// "Do 29.10.2026 14:02" like Outlook's reading pane.
 pub fn long_date(s: &str) -> String {
     let Some(d) = parse_utc(s) else {
         return s.to_string();
     };
     format!(
-        "{}, {}. {} {} {}",
+        "{} {}",
+        WEEKDAYS[d.weekday().num_days_from_monday() as usize],
+        d.format("%d.%m.%Y %H:%M")
+    )
+}
+
+pub fn date_long(d: NaiveDate) -> String {
+    format!(
+        "{}, {}. {} {}",
         WEEKDAYS_LONG[d.weekday().num_days_from_monday() as usize],
         d.day(),
         MONTHS[d.month0() as usize],
-        d.year(),
-        d.format("%H:%M")
+        d.year()
     )
 }
 
@@ -695,5 +1230,11 @@ mod tests {
             .unwrap();
         let s = local_to_utc_string(dt);
         assert_eq!(parse_utc(&s).unwrap().naive_local(), dt);
+    }
+
+    #[test]
+    fn category_colors_accept_short_names() {
+        assert_eq!(category_color("Rote Kategorie"), CATEGORIES[0].1);
+        assert_eq!(category_color("Grün"), CATEGORIES[3].1);
     }
 }

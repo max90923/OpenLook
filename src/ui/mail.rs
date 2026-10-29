@@ -1,9 +1,16 @@
-//! Mail module: folder pane, message list and reading pane.
+//! Mail module: ribbon, folder tree, message list and reading pane.
+
+use std::collections::HashSet;
 
 use chrono::Datelike;
-use eframe::egui::{self, Color32, RichText, Sense};
+use eframe::egui::{self, RichText, Sense};
+use egui_phosphor::regular as ph;
 
-use super::{compose::ComposeKind, App, BRAND, CATEGORIES, DANGER};
+use super::{
+    chrome::{self, IC_BLUE, IC_GREEN, IC_GREY, IC_PURPLE, IC_RED, IC_YELLOW},
+    compose::ComposeKind,
+    App, ReadingPane, Win, CATEGORIES,
+};
 use crate::{
     db,
     models::*,
@@ -18,24 +25,49 @@ pub enum Filter {
     Flagged,
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    #[default]
+    Date,
+    From,
+    Subject,
+}
+
 #[derive(Default)]
 pub struct MailView {
     pub folder_id: Option<i64>,
     filter: Filter,
+    sort: Sort,
+    ascending: bool,
+    search_all: bool,
     messages: Vec<MessageSummary>,
     selected: Option<i64>,
     current: Option<Message>,
+    collapsed: HashSet<&'static str>,
+    favorites_closed: bool,
+    closed_accounts: HashSet<i64>,
 }
 
-enum Act {
+impl MailView {
+    pub fn count(&self) -> usize {
+        self.messages.len()
+    }
+
+    pub fn unread(&self) -> usize {
+        self.messages.iter().filter(|m| !m.is_read).count()
+    }
+}
+
+pub(super) enum Act {
     Folder(i64),
     Select(i64),
+    Open(i64),
     Patch(i64, MessagePatch),
     Move(i64, i64),
     Delete(i64),
     Compose(ComposeKind),
     MarkFolderRead(i64),
-    OpenInBrowser,
+    OpenInBrowser(i64),
     Toast(String),
 }
 
@@ -53,19 +85,33 @@ impl App {
                 .find(|f| f.role == "inbox")
                 .map(|f| f.id);
         }
+        let searching = !self.search.trim().is_empty();
         let q = db::MessageQuery {
-            folder_id: if self.search.trim().is_empty() {
-                self.mail.folder_id
-            } else {
+            folder_id: if searching && self.mail.search_all {
                 None
+            } else {
+                self.mail.folder_id
             },
             search: Some(self.search.clone()),
             unread_only: self.mail.filter == Filter::Unread,
             flagged_only: self.mail.filter == Filter::Flagged,
-            limit: 1000,
+            limit: 2000,
         };
         let c = self.st.db();
-        self.mail.messages = db::list_messages(&c, &q).unwrap_or_default();
+        let mut list = db::list_messages(&c, &q).unwrap_or_default();
+        match self.mail.sort {
+            Sort::Date => {
+                if self.mail.ascending {
+                    list.reverse();
+                }
+            }
+            Sort::From => list.sort_by_key(|m| sender(m).to_lowercase()),
+            Sort::Subject => list.sort_by_key(|m| strip_prefixes(&m.subject).to_lowercase()),
+        }
+        if self.mail.sort != Sort::Date && !self.mail.ascending {
+            list.reverse();
+        }
+        self.mail.messages = list;
         self.mail.current = self
             .mail
             .selected
@@ -75,7 +121,7 @@ impl App {
         }
     }
 
-    fn mail_apply(&mut self, acts: Vec<Act>) {
+    pub(super) fn mail_apply(&mut self, acts: Vec<Act>) {
         for a in acts {
             match a {
                 Act::Folder(id) => {
@@ -87,12 +133,35 @@ impl App {
                 Act::Select(id) => {
                     self.mail.selected = Some(id);
                     self.reload_messages();
-                    if self
+                    let unread = self
                         .mail
                         .current
                         .as_ref()
-                        .is_some_and(|m| !m.summary.is_read)
+                        .is_some_and(|m| !m.summary.is_read);
+                    if unread && self.prefs.mark_read && self.prefs.reading_pane != ReadingPane::Off
                     {
+                        self.patch_message(
+                            id,
+                            MessagePatch {
+                                is_read: Some(true),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+                Act::Open(id) => {
+                    let draft = self
+                        .mail
+                        .messages
+                        .iter()
+                        .find(|m| m.id == id)
+                        .is_some_and(|m| {
+                            self.folder_for_role(m.account_id, "drafts") == Some(m.folder_id)
+                        });
+                    if draft {
+                        self.open_composer(ComposeKind::EditDraft(id));
+                    } else {
+                        self.open_window(Win::Compose(super::compose::Composer::reader(id)));
                         self.patch_message(
                             id,
                             MessagePatch {
@@ -107,7 +176,7 @@ impl App {
                     if self.mail.selected == Some(id) {
                         self.select_next(id);
                     }
-                    self.spawn(Some("Nachricht verschoben"), move |st, _| async move {
+                    self.spawn(Some("Element verschoben."), move |st, _| async move {
                         providers::move_message(&st, id, folder).await
                     });
                 }
@@ -120,32 +189,44 @@ impl App {
                     });
                 }
                 Act::Compose(kind) => self.open_composer(kind),
-                Act::Toast(t) => self.toast(t, true),
                 Act::MarkFolderRead(folder) => {
-                    let ids: Vec<i64> = self
-                        .mail
-                        .messages
-                        .iter()
-                        .filter(|m| m.folder_id == folder && !m.is_read)
+                    let ids: Vec<i64> = {
+                        let c = self.st.db();
+                        db::list_messages(
+                            &c,
+                            &db::MessageQuery {
+                                folder_id: Some(folder),
+                                unread_only: true,
+                                limit: 5000,
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap_or_default()
+                        .into_iter()
                         .map(|m| m.id)
-                        .collect();
-                    self.spawn(Some("Alle als gelesen markiert"), move |st, _| async move {
-                        for id in ids {
-                            providers::patch_message(
-                                &st,
-                                id,
-                                &MessagePatch {
-                                    is_read: Some(true),
-                                    ..Default::default()
-                                },
-                            )
-                            .await?;
-                        }
-                        Ok(())
-                    });
+                        .collect()
+                    };
+                    self.spawn(
+                        Some("Alle Elemente als gelesen markiert."),
+                        move |st, _| async move {
+                            for id in ids {
+                                providers::patch_message(
+                                    &st,
+                                    id,
+                                    &MessagePatch {
+                                        is_read: Some(true),
+                                        ..Default::default()
+                                    },
+                                )
+                                .await?;
+                            }
+                            Ok(())
+                        },
+                    );
                 }
-                Act::OpenInBrowser => {
-                    if let Some(m) = &self.mail.current {
+                Act::OpenInBrowser(id) => {
+                    let m = db::get_message(&self.st.db(), id).ok().flatten();
+                    if let Some(m) = m {
                         let path =
                             std::env::temp_dir().join(format!("mailcraft-{}.html", m.summary.id));
                         let html = format!(
@@ -159,6 +240,7 @@ impl App {
                         }
                     }
                 }
+                Act::Toast(t) => self.toast(t, true),
             }
         }
     }
@@ -193,7 +275,7 @@ impl App {
             .map(|m| m.id);
     }
 
-    fn folder_for_role(&self, account_id: i64, role: &str) -> Option<i64> {
+    pub(super) fn folder_for_role(&self, account_id: i64, role: &str) -> Option<i64> {
         self.data
             .folders
             .iter()
@@ -201,33 +283,521 @@ impl App {
             .map(|f| f.id)
     }
 
+    // ------------------------------------------------------------ ribbon
+
+    pub fn mail_ribbon(&mut self, ui: &mut egui::Ui) {
+        if self.ribbon_tab != 0 {
+            let done = self.common_ribbon(ui);
+            if !done && self.ribbon_tab == 3 {
+                self.mail_view_ribbon(ui);
+            }
+            return;
+        }
+        let t = self.t;
+        let sel = self.mail.current.as_ref().map(|m| m.summary.clone());
+        let has = sel.is_some();
+        let mut acts = vec![];
+        chrome::group(ui, &t, "Neu", |ui| {
+            if chrome::large(ui, &t, ph::ENVELOPE_SIMPLE, IC_BLUE, "Neue\nE-Mail", true).clicked() {
+                acts.push(Act::Compose(ComposeKind::New));
+            }
+            let r = chrome::large(
+                ui,
+                &t,
+                ph::FILE_PLUS,
+                IC_YELLOW,
+                "Neue\nElemente \u{E136}",
+                true,
+            );
+            chrome::menu(&r, |ui| {
+                if chrome::menu_item(ui, ph::ENVELOPE_SIMPLE, IC_BLUE, "E-Mail-Nachricht") {
+                    acts.push(Act::Compose(ComposeKind::New));
+                }
+                if chrome::menu_item(ui, ph::CALENDAR_BLANK, IC_BLUE, "Termin") {
+                    self.new_event_now();
+                }
+                if chrome::menu_item(ui, ph::USER, IC_BLUE, "Kontakt") {
+                    self.new_contact();
+                }
+                if chrome::menu_item(ui, ph::CHECK_SQUARE_OFFSET, IC_GREEN, "Aufgabe") {
+                    self.new_task();
+                }
+            });
+        });
+        chrome::group(ui, &t, "Löschen", |ui| {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", has).clicked() {
+                acts.push(Act::Delete(sel.as_ref().unwrap().id));
+            }
+            if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archivieren", has).clicked() {
+                let m = sel.as_ref().unwrap();
+                match self.folder_for_role(m.account_id, "archive") {
+                    Some(f) => acts.push(Act::Move(m.id, f)),
+                    None => acts.push(Act::Toast(
+                        "Für dieses Konto ist kein Archivordner vorhanden.".into(),
+                    )),
+                }
+            }
+            chrome::column(ui, |ui| {
+                let r = chrome::small(ui, &t, ph::PROHIBIT, IC_RED, "Junk-E-Mail \u{E136}", has);
+                chrome::menu(&r, |ui| {
+                    if chrome::menu_item(ui, ph::PROHIBIT, IC_RED, "In Junk-E-Mail verschieben") {
+                        let m = sel.as_ref().unwrap();
+                        if let Some(f) = self.folder_for_role(m.account_id, "junk") {
+                            acts.push(Act::Move(m.id, f));
+                        }
+                    }
+                    if chrome::menu_item(ui, ph::TRAY, IC_BLUE, "Keine Junk-E-Mail") {
+                        let m = sel.as_ref().unwrap();
+                        if let Some(f) = self.folder_for_role(m.account_id, "inbox") {
+                            acts.push(Act::Move(m.id, f));
+                        }
+                    }
+                });
+            });
+        });
+        chrome::group(ui, &t, "Antworten", |ui| {
+            for (icon, label, kind) in [
+                (ph::ARROW_BEND_UP_LEFT, "Antworten", 0),
+                (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Allen\nantworten", 1),
+                (ph::ARROW_BEND_UP_RIGHT, "Weiterleiten", 2),
+            ] {
+                if chrome::large(ui, &t, icon, IC_PURPLE, label, has).clicked() {
+                    let id = sel.as_ref().unwrap().id;
+                    acts.push(Act::Compose(match kind {
+                        0 => ComposeKind::Reply(id),
+                        1 => ComposeKind::ReplyAll(id),
+                        _ => ComposeKind::Forward(id),
+                    }));
+                }
+            }
+        });
+        chrome::group(ui, &t, "Verschieben", |ui| {
+            let r = chrome::large(
+                ui,
+                &t,
+                ph::FOLDER_SIMPLE,
+                IC_YELLOW,
+                "Verschieben\n\u{E136}",
+                has,
+            );
+            if let Some(m) = &sel {
+                chrome::menu(&r, |ui| self.move_menu(ui, m, &mut acts));
+            }
+        });
+        chrome::group(ui, &t, "Kategorien", |ui| {
+            chrome::column(ui, |ui| {
+                let read = sel.as_ref().is_some_and(|m| m.is_read);
+                if chrome::small(
+                    ui,
+                    &t,
+                    if read {
+                        ph::ENVELOPE_SIMPLE
+                    } else {
+                        ph::ENVELOPE_SIMPLE_OPEN
+                    },
+                    IC_BLUE,
+                    "Ungelesen/Gelesen",
+                    has,
+                )
+                .clicked()
+                {
+                    let m = sel.as_ref().unwrap();
+                    acts.push(Act::Patch(
+                        m.id,
+                        MessagePatch {
+                            is_read: Some(!m.is_read),
+                            ..Default::default()
+                        },
+                    ));
+                }
+                let r = chrome::small(ui, &t, ph::TAG, IC_PURPLE, "Kategorisieren \u{E136}", has);
+                if let Some(m) = &sel {
+                    chrome::menu(&r, |ui| category_menu(ui, m, &mut acts));
+                }
+                let r = chrome::small(ui, &t, ph::FLAG, IC_RED, "Zur Nachverfolgung \u{E136}", has);
+                if let Some(m) = &sel {
+                    chrome::menu(&r, |ui| {
+                        if chrome::menu_item(ui, ph::FLAG, IC_RED, "Kennzeichnen") {
+                            acts.push(Act::Patch(
+                                m.id,
+                                MessagePatch {
+                                    is_flagged: Some(true),
+                                    ..Default::default()
+                                },
+                            ));
+                        }
+                        if chrome::menu_item(
+                            ui,
+                            ph::CHECK,
+                            IC_GREEN,
+                            "Als erledigt markieren / Kennzeichnung löschen",
+                        ) {
+                            acts.push(Act::Patch(
+                                m.id,
+                                MessagePatch {
+                                    is_flagged: Some(false),
+                                    ..Default::default()
+                                },
+                            ));
+                        }
+                    });
+                }
+            });
+            chrome::column(ui, |ui| {
+                let pinned = sel.as_ref().is_some_and(|m| m.is_pinned);
+                if chrome::small(
+                    ui,
+                    &t,
+                    ph::PUSH_PIN,
+                    IC_BLUE,
+                    if pinned { "Lösen" } else { "Anheften" },
+                    has,
+                )
+                .clicked()
+                {
+                    let m = sel.as_ref().unwrap();
+                    acts.push(Act::Patch(
+                        m.id,
+                        MessagePatch {
+                            is_pinned: Some(!m.is_pinned),
+                            ..Default::default()
+                        },
+                    ));
+                }
+            });
+        });
+        chrome::group(ui, &t, "Suchen", |ui| {
+            chrome::column(ui, |ui| {
+                if chrome::small(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", true).clicked() {
+                    self.switch_module(super::Module::People);
+                }
+                let r = chrome::small(ui, &t, ph::FUNNEL, IC_BLUE, "E-Mail filtern \u{E136}", true);
+                chrome::menu(&r, |ui| {
+                    for (f, label, icon) in [
+                        (Filter::All, "Alle E-Mails", ph::ENVELOPE_SIMPLE),
+                        (Filter::Unread, "Ungelesen", ph::ENVELOPE_SIMPLE_OPEN),
+                        (Filter::Flagged, "Gekennzeichnet", ph::FLAG),
+                    ] {
+                        if chrome::menu_item(ui, icon, IC_BLUE, label) {
+                            self.mail.filter = f;
+                            self.dirty = true;
+                        }
+                    }
+                });
+            });
+        });
+        self.mail_apply(acts);
+    }
+
+    fn mail_view_ribbon(&mut self, ui: &mut egui::Ui) {
+        let t = self.t;
+        chrome::group(ui, &t, "Layout", |ui| {
+            let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "Lesebereich\n\u{E136}", true);
+            chrome::menu(&r, |ui| {
+                for (p, label, key) in [
+                    (ReadingPane::Right, "Rechts", "right"),
+                    (ReadingPane::Bottom, "Unten", "bottom"),
+                    (ReadingPane::Off, "Aus", "off"),
+                ] {
+                    if ui.radio(self.prefs.reading_pane == p, label).clicked() {
+                        self.prefs.reading_pane = p;
+                        self.save_setting("reading_pane", serde_json::json!(key));
+                        ui.close();
+                    }
+                }
+            });
+        });
+        chrome::group(ui, &t, "Nachrichtenvorschau", |ui| {
+            let r = chrome::large(
+                ui,
+                &t,
+                ph::ROWS,
+                IC_BLUE,
+                "Nachrichten-\nvorschau \u{E136}",
+                true,
+            );
+            chrome::menu(&r, |ui| {
+                for (v, label) in [(false, "Aus"), (true, "1 Zeile")] {
+                    if ui.radio(self.prefs.preview == v, label).clicked() {
+                        self.prefs.preview = v;
+                        self.save_setting("preview", serde_json::json!(v));
+                        ui.close();
+                    }
+                }
+            });
+        });
+        chrome::group(ui, &t, "Anordnung", |ui| {
+            chrome::column(ui, |ui| {
+                for (s, label, icon) in [
+                    (Sort::Date, "Datum", ph::CALENDAR_BLANK),
+                    (Sort::From, "Von", ph::USER),
+                    (Sort::Subject, "Betreff", ph::TEXT_AA),
+                ] {
+                    let txt = if self.mail.sort == s {
+                        format!("{label}  \u{E182}")
+                    } else {
+                        label.to_string()
+                    };
+                    if chrome::small(ui, &t, icon, IC_BLUE, &txt, true).clicked() {
+                        self.mail.sort = s;
+                        self.dirty = true;
+                    }
+                }
+            });
+            chrome::column(ui, |ui| {
+                if chrome::small(
+                    ui,
+                    &t,
+                    ph::ARROWS_DOWN_UP,
+                    IC_BLUE,
+                    "Sortierung umkehren",
+                    true,
+                )
+                .clicked()
+                {
+                    self.mail.ascending = !self.mail.ascending;
+                    self.dirty = true;
+                }
+            });
+        });
+    }
+
+    fn move_menu(&self, ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
+        for f in self
+            .data
+            .folders
+            .iter()
+            .filter(|f| f.account_id == m.account_id && f.id != m.folder_id)
+        {
+            if chrome::menu_item(ui, folder_icon(&f.role), IC_YELLOW, &f.name) {
+                acts.push(Act::Move(m.id, f.id));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ folder pane
+
+    pub fn mail_folders(&mut self, ui: &mut egui::Ui) {
+        let mut acts = vec![];
+        egui::ScrollArea::vertical()
+            .id_salt("folders_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let arrow = if self.mail.favorites_closed {
+                    ph::CARET_RIGHT
+                } else {
+                    ph::CARET_DOWN
+                };
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new(format!("{arrow}  Favoriten")).strong())
+                            .frame(false),
+                    )
+                    .clicked()
+                {
+                    self.mail.favorites_closed = !self.mail.favorites_closed;
+                }
+                if !self.mail.favorites_closed {
+                    for role in ["inbox", "sent", "trash"] {
+                        for f in self.data.folders.iter().filter(|f| f.role == role) {
+                            let multi = self.data.accounts.len() > 1 && role == "inbox";
+                            let label = if multi {
+                                format!(
+                                    "{} – {}",
+                                    f.name,
+                                    self.data
+                                        .account(f.account_id)
+                                        .map(|a| a.name.as_str())
+                                        .unwrap_or_default()
+                                )
+                            } else {
+                                f.name.clone()
+                            };
+                            self.folder_row(ui, f, &label, 14.0, &mut acts);
+                        }
+                        if self.data.accounts.len() > 1 {
+                            break;
+                        }
+                    }
+                }
+                ui.add_space(10.0);
+                for acc in self.data.accounts.clone() {
+                    let closed = self.mail.closed_accounts.contains(&acc.id);
+                    let arrow = if closed {
+                        ph::CARET_RIGHT
+                    } else {
+                        ph::CARET_DOWN
+                    };
+                    let r = ui.add(
+                        egui::Button::new(
+                            RichText::new(format!("{arrow}  {}", acc.email)).strong(),
+                        )
+                        .frame(false)
+                        .truncate(),
+                    );
+                    if r.clicked() {
+                        if closed {
+                            self.mail.closed_accounts.remove(&acc.id);
+                        } else {
+                            self.mail.closed_accounts.insert(acc.id);
+                        }
+                    }
+                    if let Some(e) = &acc.last_error {
+                        ui.horizontal(|ui| {
+                            ui.add_space(22.0);
+                            ui.label(
+                                RichText::new(format!("{}  Getrennt", ph::WARNING))
+                                    .small()
+                                    .color(self.t.danger),
+                            )
+                            .on_hover_text(e);
+                        });
+                    }
+                    if !closed {
+                        for f in self.data.folders.iter().filter(|f| f.account_id == acc.id) {
+                            self.folder_row(ui, f, &f.name, 26.0, &mut acts);
+                        }
+                    }
+                    ui.add_space(8.0);
+                }
+            });
+        self.mail_apply(acts);
+    }
+
+    fn folder_row(
+        &self,
+        ui: &mut egui::Ui,
+        f: &Folder,
+        label: &str,
+        indent: f32,
+        acts: &mut Vec<Act>,
+    ) {
+        let t = &self.t;
+        let active = self.mail.folder_id == Some(f.id)
+            && (self.search.trim().is_empty() || !self.mail.search_all);
+        let w = ui.available_width();
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());
+        let drop = resp.dnd_hover_payload::<i64>().is_some();
+        if active {
+            ui.painter().rect_filled(rect, 0, t.selected);
+        } else if resp.hovered() || drop {
+            ui.painter().rect_filled(rect, 0, t.hover);
+        }
+        if drop {
+            ui.painter().rect_stroke(
+                rect,
+                0,
+                egui::Stroke::new(1.0_f32, t.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let p = ui.painter();
+        let show_count = f.role != "sent" && f.role != "drafts";
+        let bold = f.unread > 0 && show_count;
+        let name = super::one_line(
+            p,
+            label,
+            egui::FontId::proportional(13.0),
+            t.text,
+            w - indent - 50.0,
+        );
+        let name_w = name.size().x;
+        p.galley(
+            egui::pos2(rect.left() + indent, rect.center().y - name.size().y / 2.0),
+            name,
+            t.text,
+        );
+        if bold {
+            // Faux bold like Outlook's unread folders.
+            let again = super::one_line(
+                p,
+                label,
+                egui::FontId::proportional(13.0),
+                t.text,
+                w - indent - 50.0,
+            );
+            p.galley(
+                egui::pos2(
+                    rect.left() + indent + 0.6,
+                    rect.center().y - again.size().y / 2.0,
+                ),
+                again,
+                t.text,
+            );
+        }
+        let count = if show_count && f.unread > 0 {
+            Some(f.unread.to_string())
+        } else if f.role == "drafts" && f.total > 0 {
+            Some(format!("[{}]", f.total))
+        } else {
+            None
+        };
+        if let Some(c) = count {
+            p.text(
+                egui::pos2(rect.left() + indent + name_w + 8.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                c,
+                egui::FontId::proportional(13.0),
+                t.accent,
+            );
+        }
+        if let Some(id) = resp.dnd_release_payload::<i64>() {
+            acts.push(Act::Move(*id, f.id));
+        }
+        if resp.clicked() {
+            acts.push(Act::Folder(f.id));
+        }
+        resp.context_menu(|ui| {
+            if chrome::menu_item(
+                ui,
+                ph::ENVELOPE_SIMPLE_OPEN,
+                IC_BLUE,
+                "Alle als gelesen markieren",
+            ) {
+                acts.push(Act::MarkFolderRead(f.id));
+            }
+        });
+    }
+
+    // ------------------------------------------------------------ content
+
     pub fn mail_ui(&mut self, ui: &mut egui::Ui) {
         let mut acts = vec![];
         self.mail_shortcuts(ui.ctx(), &mut acts);
-
-        egui::TopBottomPanel::top("mail_ribbon")
-            .frame(super::pane_frame(ui).inner_margin(egui::Margin::symmetric(8, 6)))
-            .show_inside(ui, |ui| self.mail_ribbon(ui, &mut acts));
-        ui.add_space(8.0);
-
-        egui::SidePanel::left("folders")
-            .resizable(true)
-            .default_width(230.0)
-            .width_range(160.0..=360.0)
-            .frame(egui::Frame::new())
-            .show_inside(ui, |ui| self.folder_pane(ui, &mut acts));
-
-        egui::SidePanel::left("message_list")
-            .resizable(true)
-            .default_width(400.0)
-            .width_range(280.0..=640.0)
-            .frame(super::pane_frame(ui))
-            .show_inside(ui, |ui| self.message_list(ui, &mut acts));
-
-        egui::CentralPanel::default()
-            .frame(super::pane_frame(ui).inner_margin(egui::Margin::same(0)))
-            .show_inside(ui, |ui| self.reading_pane(ui, &mut acts));
-
+        let t = self.t;
+        let list_frame = egui::Frame::new()
+            .fill(t.pane)
+            .stroke(egui::Stroke::new(1.0_f32, t.border));
+        match self.prefs.reading_pane {
+            ReadingPane::Right => {
+                egui::SidePanel::left("message_list")
+                    .resizable(true)
+                    .default_width(380.0)
+                    .width_range(260.0..=700.0)
+                    .frame(list_frame)
+                    .show_inside(ui, |ui| self.message_list(ui, &mut acts));
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(t.pane))
+                    .show_inside(ui, |ui| self.reading_pane(ui, &mut acts));
+            }
+            ReadingPane::Bottom => {
+                egui::TopBottomPanel::top("message_list_top")
+                    .resizable(true)
+                    .default_height(300.0)
+                    .height_range(140.0..=700.0)
+                    .frame(list_frame)
+                    .show_inside(ui, |ui| self.message_list(ui, &mut acts));
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(t.pane))
+                    .show_inside(ui, |ui| self.reading_pane(ui, &mut acts));
+            }
+            ReadingPane::Off => {
+                egui::CentralPanel::default()
+                    .frame(list_frame)
+                    .show_inside(ui, |ui| self.message_list(ui, &mut acts));
+            }
+        }
         self.mail_apply(acts);
     }
 
@@ -237,28 +807,35 @@ impl App {
         }
         let sel = self.mail.current.as_ref().map(|m| &m.summary);
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::N) && !i.modifiers.any() {
-                acts.push(Act::Compose(ComposeKind::New));
-            }
+            let cmd = i.modifiers.command;
             if let Some(m) = sel {
                 if i.key_pressed(egui::Key::Delete) {
                     acts.push(Act::Delete(m.id));
                 }
-                if i.key_pressed(egui::Key::R) && !i.modifiers.command {
+                if cmd && i.key_pressed(egui::Key::R) {
                     acts.push(Act::Compose(if i.modifiers.shift {
                         ComposeKind::ReplyAll(m.id)
                     } else {
                         ComposeKind::Reply(m.id)
                     }));
                 }
-                if i.key_pressed(egui::Key::F) && !i.modifiers.command {
+                if cmd && i.key_pressed(egui::Key::F) {
                     acts.push(Act::Compose(ComposeKind::Forward(m.id)));
                 }
-                if i.key_pressed(egui::Key::Q) {
+                if cmd && i.key_pressed(egui::Key::Q) {
                     acts.push(Act::Patch(
                         m.id,
                         MessagePatch {
-                            is_read: Some(!m.is_read),
+                            is_read: Some(true),
+                            ..Default::default()
+                        },
+                    ));
+                }
+                if cmd && i.key_pressed(egui::Key::U) {
+                    acts.push(Act::Patch(
+                        m.id,
+                        MessagePatch {
+                            is_read: Some(false),
                             ..Default::default()
                         },
                     ));
@@ -272,11 +849,13 @@ impl App {
                         },
                     ));
                 }
+                if i.key_pressed(egui::Key::Enter) {
+                    acts.push(Act::Open(m.id));
+                }
             }
             let pos = sel.and_then(|m| self.mail.messages.iter().position(|x| x.id == m.id));
             if i.key_pressed(egui::Key::ArrowDown) {
-                let next = pos.map(|p| p + 1).unwrap_or(0);
-                if let Some(m) = self.mail.messages.get(next) {
+                if let Some(m) = self.mail.messages.get(pos.map(|p| p + 1).unwrap_or(0)) {
                     acts.push(Act::Select(m.id));
                 }
             }
@@ -291,301 +870,177 @@ impl App {
         });
     }
 
-    fn mail_ribbon(&self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
-        let sel = self.mail.current.as_ref().map(|m| m.summary.clone());
-        let has = sel.is_some();
-        ui.horizontal_wrapped(|ui| {
-            if super::primary_button(ui, "✉  Neue E-Mail").clicked() {
-                acts.push(Act::Compose(ComposeKind::New));
-            }
-            ui.separator();
-            if super::ribbon_button(ui, "🗑", "Löschen", has).clicked() {
-                acts.push(Act::Delete(sel.as_ref().unwrap().id));
-            }
-            if super::ribbon_button(ui, "🗄", "Archivieren", has).clicked() {
-                let m = sel.as_ref().unwrap();
-                match self.folder_for_role(m.account_id, "archive") {
-                    Some(f) => acts.push(Act::Move(m.id, f)),
-                    None => acts.push(Act::Toast("Dieses Konto hat keinen Archivordner".into())),
-                }
-            }
-            if super::ribbon_button(ui, "⚠", "Junk", has).clicked() {
-                let m = sel.as_ref().unwrap();
-                if let Some(f) = self.folder_for_role(m.account_id, "junk") {
-                    acts.push(Act::Move(m.id, f));
-                }
-            }
-            ui.add_enabled_ui(has, |ui| {
-                ui.menu_button("📁  Verschieben", |ui| {
-                    if let Some(m) = &sel {
-                        self.move_menu(ui, m, acts);
-                    }
-                });
-            });
-            ui.separator();
-            for (icon, label, kind) in [
-                ("↩", "Antworten", 0),
-                ("↩↩", "Allen antworten", 1),
-                ("↪", "Weiterleiten", 2),
-            ] {
-                if super::ribbon_button(ui, icon, label, has).clicked() {
-                    let id = sel.as_ref().unwrap().id;
-                    acts.push(Act::Compose(match kind {
-                        0 => ComposeKind::Reply(id),
-                        1 => ComposeKind::ReplyAll(id),
-                        _ => ComposeKind::Forward(id),
-                    }));
-                }
-            }
-            ui.separator();
-            let read_label = if sel.as_ref().is_some_and(|m| m.is_read) {
-                "Ungelesen"
-            } else {
-                "Gelesen"
-            };
-            if super::ribbon_button(ui, "✉", read_label, has).clicked() {
-                let m = sel.as_ref().unwrap();
-                acts.push(Act::Patch(
-                    m.id,
-                    MessagePatch {
-                        is_read: Some(!m.is_read),
-                        ..Default::default()
-                    },
-                ));
-            }
-            if super::ribbon_button(ui, "⚑", "Kennzeichnen", has).clicked() {
-                let m = sel.as_ref().unwrap();
-                acts.push(Act::Patch(
-                    m.id,
-                    MessagePatch {
-                        is_flagged: Some(!m.is_flagged),
-                        ..Default::default()
-                    },
-                ));
-            }
-            if super::ribbon_button(ui, "📌", "Anheften", has).clicked() {
-                let m = sel.as_ref().unwrap();
-                acts.push(Act::Patch(
-                    m.id,
-                    MessagePatch {
-                        is_pinned: Some(!m.is_pinned),
-                        ..Default::default()
-                    },
-                ));
-            }
-            ui.add_enabled_ui(has, |ui| {
-                ui.menu_button("🏷  Kategorisieren", |ui| {
-                    if let Some(m) = &sel {
-                        category_menu(ui, m, acts);
-                    }
-                });
-            });
-        });
-    }
-
-    fn move_menu(&self, ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
-        for f in self
-            .data
-            .folders
-            .iter()
-            .filter(|f| f.account_id == m.account_id && f.id != m.folder_id)
-        {
-            if ui.button(&f.name).clicked() {
-                acts.push(Act::Move(m.id, f.id));
-                ui.close();
-            }
-        }
-    }
-
-    fn folder_pane(&self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
-        egui::ScrollArea::vertical()
-            .id_salt("folders_scroll")
-            .show(ui, |ui| {
-                // Favourites: every inbox, like Outlook's default favourites.
-                ui.label(RichText::new("★ Favoriten").strong());
-                for f in self.data.folders.iter().filter(|f| f.role == "inbox") {
-                    let acc = self
-                        .data
-                        .account(f.account_id)
-                        .map(|a| a.email.as_str())
-                        .unwrap_or_default();
-                    self.folder_row(ui, f, &format!("Posteingang – {acc}"), acts);
-                }
-                ui.add_space(8.0);
-                for acc in &self.data.accounts {
-                    let header = RichText::new(format!(
-                        "{}  {}",
-                        match acc.kind {
-                            AccountKind::Local => "🖴",
-                            AccountKind::Imap => "📨",
-                            AccountKind::Graph => "Ⓜ",
-                        },
-                        acc.email
-                    ))
-                    .strong();
-                    egui::CollapsingHeader::new(header)
-                        .id_salt(("acc", acc.id))
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            if let Some(e) = &acc.last_error {
-                                ui.label(RichText::new(format!("⚠ {e}")).small().color(DANGER))
-                                    .on_hover_text(e);
-                            }
-                            for f in self.data.folders.iter().filter(|f| f.account_id == acc.id) {
-                                self.folder_row(ui, f, &f.name, acts);
-                            }
-                        });
-                }
-            });
-    }
-
-    fn folder_row(&self, ui: &mut egui::Ui, f: &Folder, label: &str, acts: &mut Vec<Act>) {
-        let icon = match f.role.as_str() {
-            "inbox" => "📥",
-            "sent" => "📤",
-            "drafts" => "📝",
-            "trash" => "🗑",
-            "junk" => "⚠",
-            "archive" => "🗄",
-            _ => "📁",
-        };
-        let active = self.mail.folder_id == Some(f.id) && self.search.trim().is_empty();
-        let w = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 28.0), Sense::click());
-        let hovered_drop = resp.dnd_hover_payload::<i64>().is_some();
-        let visuals = ui.visuals();
-        if active {
-            ui.painter().rect_filled(rect, 4, visuals.selection.bg_fill);
-        } else if resp.hovered() || hovered_drop {
-            ui.painter()
-                .rect_filled(rect, 4, visuals.widgets.hovered.weak_bg_fill);
-        }
-        if hovered_drop {
-            ui.painter().rect_stroke(
-                rect,
-                4,
-                egui::Stroke::new(1.5_f32, BRAND),
-                egui::StrokeKind::Inside,
-            );
-        }
-        let text_color = visuals.text_color();
-        let p = ui.painter();
-        p.text(
-            rect.left_center() + egui::vec2(10.0, 0.0),
-            egui::Align2::LEFT_CENTER,
-            icon,
-            egui::FontId::proportional(14.0),
-            text_color,
-        );
-        let name = super::one_line(
-            p,
-            label,
-            egui::FontId::proportional(14.0),
-            text_color,
-            w - 74.0,
-        );
-        p.galley(
-            rect.left_center() + egui::vec2(34.0, -name.size().y / 2.0),
-            name,
-            text_color,
-        );
-        if f.unread > 0 && f.role != "sent" && f.role != "drafts" {
-            ui.painter().text(
-                rect.right_center() - egui::vec2(10.0, 0.0),
-                egui::Align2::RIGHT_CENTER,
-                f.unread.to_string(),
-                egui::FontId::proportional(12.0),
-                BRAND,
-            );
-        } else if f.role == "drafts" && f.total > 0 {
-            ui.painter().text(
-                rect.right_center() - egui::vec2(10.0, 0.0),
-                egui::Align2::RIGHT_CENTER,
-                f.total.to_string(),
-                egui::FontId::proportional(12.0),
-                visuals.weak_text_color(),
-            );
-        }
-        if let Some(id) = resp.dnd_release_payload::<i64>() {
-            acts.push(Act::Move(*id, f.id));
-        }
-        if resp.clicked() {
-            acts.push(Act::Folder(f.id));
-        }
-        resp.context_menu(|ui| {
-            if ui.button("✉  Alle als gelesen markieren").clicked() {
-                acts.push(Act::Folder(f.id));
-                acts.push(Act::MarkFolderRead(f.id));
-                ui.close();
-            }
-        });
-    }
-
     fn message_list(&mut self, ui: &mut egui::Ui, acts: &mut Vec<Act>) {
-        let title = if !self.search.trim().is_empty() {
-            format!("Suchergebnisse für „{}“", self.search.trim())
-        } else {
-            self.mail
-                .folder_id
-                .and_then(|id| self.data.folders.iter().find(|f| f.id == id))
-                .map(|f| f.name.clone())
-                .unwrap_or_else(|| "E-Mail".into())
-        };
+        let t = self.t;
         egui::Frame::new()
             .inner_margin(egui::Margin {
-                left: 14,
-                right: 14,
-                top: 12,
-                bottom: 4,
+                left: 8,
+                right: 8,
+                top: 8,
+                bottom: 2,
             })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(title).size(18.0).strong());
+                    let hint = if self.mail.search_all {
+                        "Alle Postfächer durchsuchen (Strg+E)"
+                    } else {
+                        "Aktuellen Ordner durchsuchen (Strg+E)"
+                    };
+                    let w = ui.available_width() - 130.0;
+                    ui.allocate_ui(egui::vec2(w, 26.0), |ui| {
+                        if super::search_box(ui, &t, &mut self.search, hint).changed() {
+                            self.dirty = true;
+                        }
+                    });
+                    egui::ComboBox::from_id_salt("search_scope")
+                        .width(120.0)
+                        .selected_text(if self.mail.search_all {
+                            "Alle Postfächer"
+                        } else {
+                            "Aktueller Ordner"
+                        })
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_value(
+                                    &mut self.mail.search_all,
+                                    false,
+                                    "Aktueller Ordner",
+                                )
+                                .clicked()
+                                | ui.selectable_value(
+                                    &mut self.mail.search_all,
+                                    true,
+                                    "Alle Postfächer",
+                                )
+                                .clicked()
+                            {
+                                self.dirty = true;
+                            }
+                        });
                 });
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    let mut changed = false;
-                    for (f, label) in [
-                        (Filter::All, "Alle"),
-                        (Filter::Unread, "Ungelesen"),
-                        (Filter::Flagged, "Gekennzeichnet"),
-                    ] {
-                        if ui.selectable_label(self.mail.filter == f, label).clicked() {
+                    for (f, label) in [(Filter::All, "Alle"), (Filter::Unread, "Ungelesen")] {
+                        let active = self.mail.filter == f;
+                        let text = RichText::new(label).size(13.0).color(if active {
+                            t.accent
+                        } else {
+                            t.text
+                        });
+                        let r = ui.add(
+                            egui::Button::new(if active { text.underline() } else { text })
+                                .frame(false),
+                        );
+                        if r.clicked() {
                             self.mail.filter = f;
-                            changed = true;
+                            self.dirty = true;
                         }
                     }
-                    if changed {
-                        self.reload_messages();
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let dir = match (self.mail.sort, self.mail.ascending) {
+                            (Sort::Date, false) => format!("Neueste {}", ph::ARROW_DOWN),
+                            (Sort::Date, true) => format!("Älteste {}", ph::ARROW_UP),
+                            (_, false) => format!("A bis Z {}", ph::ARROW_DOWN),
+                            (_, true) => format!("Z bis A {}", ph::ARROW_UP),
+                        };
+                        if ui
+                            .add(egui::Button::new(RichText::new(dir).size(12.0)).frame(false))
+                            .clicked()
+                        {
+                            self.mail.ascending = !self.mail.ascending;
+                            self.dirty = true;
+                        }
+                        let by = match self.mail.sort {
+                            Sort::Date => "Nach Datum",
+                            Sort::From => "Nach Von",
+                            Sort::Subject => "Nach Betreff",
+                        };
+                        let r = ui.add(
+                            egui::Button::new(
+                                RichText::new(format!("{by} {}", ph::CARET_DOWN)).size(12.0),
+                            )
+                            .frame(false),
+                        );
+                        chrome::menu(&r, |ui| {
+                            for (s, label) in [
+                                (Sort::Date, "Datum"),
+                                (Sort::From, "Von"),
+                                (Sort::Subject, "Betreff"),
+                            ] {
+                                if ui.radio(self.mail.sort == s, label).clicked() {
+                                    self.mail.sort = s;
+                                    self.dirty = true;
+                                    ui.close();
+                                }
+                            }
+                        });
+                    });
                 });
             });
-        ui.separator();
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0_f32, t.border),
+        );
 
         if self.mail.messages.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("📭\n\nHier ist nichts.").size(16.0).weak());
+            ui.add_space(30.0);
+            ui.vertical_centered(|ui| {
+                let msg = if self.search.trim().is_empty() {
+                    "In dieser Ansicht gibt es keine Elemente."
+                } else {
+                    "Es wurden keine Ergebnisse gefunden."
+                };
+                ui.label(RichText::new(msg).color(t.text_weak));
             });
             return;
         }
-        let in_search = !self.search.trim().is_empty();
+        let in_search = !self.search.trim().is_empty() && self.mail.search_all;
+        let messages = std::mem::take(&mut self.mail.messages);
         egui::ScrollArea::vertical()
             .id_salt("msg_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
                 let mut last_group = "";
-                for m in &self.mail.messages {
+                let mut hidden = false;
+                for m in &messages {
                     let group = if m.is_pinned {
                         "Angeheftet"
-                    } else {
+                    } else if self.mail.sort == Sort::Date {
                         date_group(&m.date)
+                    } else {
+                        ""
                     };
-                    if group != last_group {
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(14.0);
-                            ui.label(RichText::new(group).small().strong().weak());
-                        });
+                    if group != last_group && !group.is_empty() {
                         last_group = group;
+                        hidden = self.mail.collapsed.contains(group);
+                        let arrow = if hidden {
+                            ph::CARET_RIGHT
+                        } else {
+                            ph::CARET_DOWN
+                        };
+                        let r = ui.add(
+                            egui::Button::new(
+                                RichText::new(format!("  {arrow}  {group}"))
+                                    .size(12.5)
+                                    .strong()
+                                    .color(t.text),
+                            )
+                            .frame(false)
+                            .min_size(egui::vec2(ui.available_width(), 26.0)),
+                        );
+                        if r.clicked() {
+                            if hidden {
+                                self.mail.collapsed.remove(group);
+                            } else {
+                                self.mail.collapsed.insert(group);
+                            }
+                            hidden = !hidden;
+                        }
+                    }
+                    if hidden {
+                        continue;
                     }
                     let folder_name = in_search
                         .then(|| {
@@ -599,6 +1054,7 @@ impl App {
                     self.message_row(ui, m, folder_name, acts);
                 }
             });
+        self.mail.messages = messages;
     }
 
     fn message_row(
@@ -608,147 +1064,207 @@ impl App {
         folder_name: Option<&str>,
         acts: &mut Vec<Act>,
     ) {
+        let t = &self.t;
         let selected = self.mail.selected == Some(m.id);
         let w = ui.available_width();
-        let h = if m.categories.is_empty() { 68.0 } else { 86.0 };
+        let h = if self.prefs.preview { 62.0 } else { 44.0 };
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), Sense::click_and_drag());
         resp.dnd_set_drag_payload(m.id);
-        let v = ui.visuals().clone();
         let p = ui.painter_at(rect);
         if selected {
-            p.rect_filled(rect, 0, v.selection.bg_fill);
+            p.rect_filled(rect, 0, t.selected);
         } else if resp.hovered() {
-            p.rect_filled(rect, 0, v.widgets.hovered.weak_bg_fill);
+            p.rect_filled(rect, 0, t.hover);
         }
         if !m.is_read {
             p.rect_filled(
-                egui::Rect::from_min_size(rect.min, egui::vec2(3.0, h)),
+                egui::Rect::from_min_size(
+                    rect.min + egui::vec2(0.0, 2.0),
+                    egui::vec2(3.0, h - 4.0),
+                ),
                 0,
-                BRAND,
+                t.accent,
             );
         }
-        p.line_segment(
-            [
-                rect.left_bottom() + egui::vec2(12.0, -0.5),
-                rect.right_bottom() - egui::vec2(0.0, 0.5),
-            ],
-            v.widgets.noninteractive.bg_stroke,
+        p.hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
+            egui::Stroke::new(1.0_f32, t.border.gamma_multiply(0.6)),
         );
-        let name = if m.from_name.is_empty() {
-            &m.from_addr
-        } else {
-            &m.from_name
-        };
-        super::paint_avatar(&p, rect.left_top() + egui::vec2(30.0, 26.0), 16.0, name);
 
-        let x = rect.left() + 56.0;
-        let right = rect.right() - 12.0;
-        let text = v.text_color();
-        let weak = v.weak_text_color();
-        // Line 1: sender + date
-        let date = super::short_date(&m.date);
-        let dg = p.layout_no_wrap(date, egui::FontId::proportional(12.0), weak);
-        let date_w = dg.size().x;
-        p.galley(egui::pos2(right - date_w, rect.top() + 9.0), dg, weak);
-        let from = super::one_line(
-            &p,
-            name,
-            egui::FontId::proportional(14.5),
-            text,
-            right - x - date_w - 10.0,
-        );
-        p.galley(egui::pos2(x, rect.top() + 7.0), from, text);
-        // Line 2: subject + icons
-        let mut icons = String::new();
-        if m.importance == "high" {
-            icons.push('❗');
+        let x = rect.left() + 14.0;
+        let right = rect.right() - 10.0;
+        let unread = !m.is_read;
+        // Line 1: sender, right side: categories, attachment, flag/delete.
+        let mut rx = right;
+        let hover = resp.hovered() || selected;
+        let mut icon_hits: Vec<(egui::Rect, u8)> = vec![];
+        let flag_color = if m.is_flagged { t.flag } else { t.text_weak };
+        if m.is_flagged || hover {
+            let r = egui::Rect::from_center_size(
+                egui::pos2(rx - 7.0, rect.top() + 13.0),
+                egui::vec2(16.0, 16.0),
+            );
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                if m.is_flagged {
+                    egui_phosphor::fill::FLAG
+                } else {
+                    ph::FLAG
+                },
+                chrome::fill_font(14.0),
+                flag_color,
+            );
+            icon_hits.push((r, 1));
+        }
+        rx -= 20.0;
+        if hover {
+            let r = egui::Rect::from_center_size(
+                egui::pos2(rx - 7.0, rect.top() + 13.0),
+                egui::vec2(16.0, 16.0),
+            );
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                ph::X,
+                egui::FontId::proportional(14.0),
+                t.text_weak,
+            );
+            icon_hits.push((r, 0));
+            rx -= 20.0;
         }
         if m.has_attachments {
-            icons.push('📎');
-        }
-        if m.is_pinned {
-            icons.push('📌');
-        }
-        let mut icon_w = 0.0;
-        if m.is_flagged {
-            let g = p.layout_no_wrap("⚑".into(), egui::FontId::proportional(14.0), DANGER);
-            icon_w += g.size().x + 4.0;
-            p.galley(
-                egui::pos2(right - icon_w + 4.0, rect.top() + 27.0),
-                g,
-                DANGER,
+            p.text(
+                egui::pos2(rx - 7.0, rect.top() + 13.0),
+                egui::Align2::CENTER_CENTER,
+                ph::PAPERCLIP,
+                egui::FontId::proportional(13.0),
+                t.text_weak,
             );
+            rx -= 18.0;
         }
-        if !icons.is_empty() {
-            let g = p.layout_no_wrap(icons, egui::FontId::proportional(13.0), weak);
-            icon_w += g.size().x + 4.0;
-            p.galley(egui::pos2(right - icon_w + 4.0, rect.top() + 27.0), g, weak);
+        for c in m.categories.iter().rev() {
+            let r = egui::Rect::from_center_size(
+                egui::pos2(rx - 6.0, rect.top() + 13.0),
+                egui::vec2(10.0, 10.0),
+            );
+            p.rect_filled(r, 1, super::category_color(c));
+            rx -= 14.0;
         }
-        let subj_color = if m.is_read { text } else { BRAND };
+        let name_color = t.text;
+        let name = sender(m);
+        let g = super::one_line(
+            &p,
+            name,
+            egui::FontId::proportional(14.0),
+            name_color,
+            rx - x - 6.0,
+        );
+        let gy = rect.top() + 5.0;
+        if unread {
+            p.galley(egui::pos2(x + 0.6, gy), g.clone(), name_color);
+        }
+        p.galley(egui::pos2(x, gy), g, name_color);
+
+        // Line 2: subject + date.
+        let date = super::short_date(&m.date);
+        let date_color = if unread { t.accent } else { t.text_weak };
+        let dg = p.layout_no_wrap(date, egui::FontId::proportional(12.0), date_color);
+        let dw = dg.size().x;
+        p.galley(egui::pos2(right - dw, rect.top() + 25.0), dg, date_color);
+        let mut sx = x;
+        if m.importance == "high" {
+            p.text(
+                egui::pos2(sx, rect.top() + 32.0),
+                egui::Align2::LEFT_CENTER,
+                "!",
+                egui::FontId::proportional(14.0),
+                t.danger,
+            );
+            sx += 9.0;
+        }
         let subject = match folder_name {
-            Some(f) => format!("{}  ·  {f}", m.subject),
+            Some(f) => format!("{}  ({f})", m.subject),
             None => m.subject.clone(),
         };
+        let subj_color = if unread { t.accent } else { t.text };
         let sg = super::one_line(
             &p,
             &subject,
-            egui::FontId::proportional(13.5),
+            egui::FontId::proportional(13.0),
             subj_color,
-            right - x - icon_w - 4.0,
+            right - sx - dw - 10.0,
         );
-        p.galley(egui::pos2(x, rect.top() + 27.0), sg, subj_color);
-        // Line 3: preview
-        let pg = super::one_line(
-            &p,
-            &m.preview,
-            egui::FontId::proportional(12.5),
-            weak,
-            right - x,
-        );
-        p.galley(egui::pos2(x, rect.top() + 46.0), pg, weak);
-        // Line 4: categories
-        let mut cx = x;
-        for c in &m.categories {
-            let g = p.layout_no_wrap(c.clone(), egui::FontId::proportional(11.0), Color32::WHITE);
-            let r = egui::Rect::from_min_size(
-                egui::pos2(cx, rect.top() + 65.0),
-                g.size() + egui::vec2(10.0, 2.0),
+        if unread {
+            p.galley(
+                egui::pos2(sx + 0.5, rect.top() + 24.0),
+                sg.clone(),
+                subj_color,
             );
-            p.rect_filled(r, 3, super::category_color(c));
-            p.galley(r.min + egui::vec2(5.0, 1.0), g, Color32::WHITE);
-            cx = r.right() + 4.0;
+        }
+        p.galley(egui::pos2(sx, rect.top() + 24.0), sg, subj_color);
+        // Line 3: preview.
+        if self.prefs.preview {
+            let pg = super::one_line(
+                &p,
+                &m.preview,
+                egui::FontId::proportional(12.5),
+                t.text_weak,
+                right - x,
+            );
+            p.galley(egui::pos2(x, rect.top() + 42.0), pg, t.text_weak);
         }
 
+        let pointer = resp.interact_pointer_pos();
+        let hit = pointer.and_then(|pos| {
+            icon_hits
+                .iter()
+                .find(|(r, _)| r.expand(3.0).contains(pos))
+                .map(|(_, k)| *k)
+        });
         if resp.clicked() {
-            acts.push(Act::Select(m.id));
+            match hit {
+                Some(0) => acts.push(Act::Delete(m.id)),
+                Some(_) => acts.push(Act::Patch(
+                    m.id,
+                    MessagePatch {
+                        is_flagged: Some(!m.is_flagged),
+                        ..Default::default()
+                    },
+                )),
+                None => acts.push(Act::Select(m.id)),
+            }
         }
-        if resp.double_clicked()
-            && m.folder_id == self.folder_for_role(m.account_id, "drafts").unwrap_or(-1)
-        {
-            acts.push(Act::Compose(ComposeKind::EditDraft(m.id)));
+        if resp.double_clicked() && hit.is_none() {
+            acts.push(Act::Open(m.id));
         }
         resp.context_menu(|ui| {
-            if ui.button("↩  Antworten").clicked() {
+            if chrome::menu_item(ui, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Antworten") {
                 acts.push(Act::Compose(ComposeKind::Reply(m.id)));
-                ui.close();
             }
-            if ui.button("↩↩  Allen antworten").clicked() {
+            if chrome::menu_item(
+                ui,
+                ph::ARROW_BEND_DOUBLE_UP_LEFT,
+                IC_PURPLE,
+                "Allen antworten",
+            ) {
                 acts.push(Act::Compose(ComposeKind::ReplyAll(m.id)));
-                ui.close();
             }
-            if ui.button("↪  Weiterleiten").clicked() {
+            if chrome::menu_item(ui, ph::ARROW_BEND_UP_RIGHT, IC_PURPLE, "Weiterleiten") {
                 acts.push(Act::Compose(ComposeKind::Forward(m.id)));
-                ui.close();
             }
             ui.separator();
-            if ui
-                .button(if m.is_read {
-                    "✉  Als ungelesen markieren"
+            if chrome::menu_item(
+                ui,
+                ph::ENVELOPE_SIMPLE_OPEN,
+                IC_BLUE,
+                if m.is_read {
+                    "Als ungelesen markieren"
                 } else {
-                    "✉  Als gelesen markieren"
-                })
-                .clicked()
-            {
+                    "Als gelesen markieren"
+                },
+            ) {
                 acts.push(Act::Patch(
                     m.id,
                     MessagePatch {
@@ -756,16 +1272,20 @@ impl App {
                         ..Default::default()
                     },
                 ));
-                ui.close();
             }
-            if ui
-                .button(if m.is_flagged {
-                    "⚑  Kennzeichnung entfernen"
+            ui.menu_button(format!("{}  Kategorisieren", ph::TAG), |ui| {
+                category_menu(ui, m, acts)
+            });
+            if chrome::menu_item(
+                ui,
+                ph::FLAG,
+                t.flag,
+                if m.is_flagged {
+                    "Als erledigt markieren"
                 } else {
-                    "⚑  Kennzeichnen"
-                })
-                .clicked()
-            {
+                    "Zur Nachverfolgung"
+                },
+            ) {
                 acts.push(Act::Patch(
                     m.id,
                     MessagePatch {
@@ -773,16 +1293,13 @@ impl App {
                         ..Default::default()
                     },
                 ));
-                ui.close();
             }
-            if ui
-                .button(if m.is_pinned {
-                    "📌  Lösen"
-                } else {
-                    "📌  Anheften"
-                })
-                .clicked()
-            {
+            if chrome::menu_item(
+                ui,
+                ph::PUSH_PIN,
+                IC_BLUE,
+                if m.is_pinned { "Lösen" } else { "Anheften" },
+            ) {
                 acts.push(Act::Patch(
                     m.id,
                     MessagePatch {
@@ -790,17 +1307,13 @@ impl App {
                         ..Default::default()
                     },
                 ));
-                ui.close();
             }
-            ui.menu_button("🏷  Kategorisieren", |ui| category_menu(ui, m, acts));
-            ui.menu_button("📁  Verschieben", |ui| self.move_menu(ui, m, acts));
+            ui.menu_button(format!("{}  Verschieben", ph::FOLDER_SIMPLE), |ui| {
+                self.move_menu(ui, m, acts)
+            });
             ui.separator();
-            if ui
-                .button(RichText::new("🗑  Löschen").color(DANGER))
-                .clicked()
-            {
+            if chrome::menu_item(ui, ph::X, IC_RED, "Löschen") {
                 acts.push(Act::Delete(m.id));
-                ui.close();
             }
         });
     }
@@ -809,101 +1322,235 @@ impl App {
         let Some(m) = &self.mail.current else {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    RichText::new("✉\n\nWählen Sie ein Element aus, um es zu lesen.")
-                        .size(16.0)
-                        .weak(),
+                    RichText::new("Wählen Sie ein Element aus, um es zu lesen.")
+                        .size(14.0)
+                        .color(self.t.text_weak),
                 );
             });
             return;
         };
-        let s = &m.summary;
-        egui::ScrollArea::vertical().id_salt(("reader", s.id)).auto_shrink([false, false]).show(ui, |ui| {
-            egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 16)).show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(&s.subject).size(20.0).strong());
-                    for c in &s.categories {
-                        ui.label(RichText::new(format!(" {c} ")).small().color(Color32::WHITE).background_color(super::category_color(c)));
-                    }
-                });
-                ui.add_space(10.0);
-                egui::Frame::new()
-                    .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-                    .corner_radius(6)
-                    .inner_margin(egui::Margin::same(14))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            let name = if s.from_name.is_empty() { &s.from_addr } else { &s.from_name };
-                            super::avatar(ui, 40.0, name);
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(name).strong());
-                                    if !s.from_name.is_empty() {
-                                        ui.label(RichText::new(format!("<{}>", s.from_addr)).weak());
-                                    }
-                                });
-                                if !m.to.is_empty() {
-                                    ui.label(RichText::new(format!("An: {}", m.to)).small().weak());
-                                }
-                                if !m.cc.is_empty() {
-                                    ui.label(RichText::new(format!("Cc: {}", m.cc)).small().weak());
-                                }
-                                ui.label(RichText::new(super::long_date(&s.date)).small().weak());
-                            });
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                                let b = |ui: &mut egui::Ui, t: &str, tip: &str| {
-                                    ui.add(egui::Button::new(RichText::new(t).size(16.0).color(BRAND)).frame(false)).on_hover_text(tip).clicked()
-                                };
-                                if b(ui, "🌐", "Im Browser anzeigen (vollständiges HTML)") {
-                                    acts.push(Act::OpenInBrowser);
-                                }
-                                if b(ui, "↪", "Weiterleiten") {
-                                    acts.push(Act::Compose(ComposeKind::Forward(s.id)));
-                                }
-                                if b(ui, "↩↩", "Allen antworten") {
-                                    acts.push(Act::Compose(ComposeKind::ReplyAll(s.id)));
-                                }
-                                if b(ui, "↩", "Antworten") {
-                                    acts.push(Act::Compose(ComposeKind::Reply(s.id)));
-                                }
-                            });
-                        });
-                        if s.importance == "high" {
-                            ui.add_space(6.0);
-                            ui.label(RichText::new("❗ Diese Nachricht wurde mit hoher Wichtigkeit gesendet.").color(DANGER).small());
-                        }
-                        if s.has_attachments {
-                            ui.label(RichText::new("📎 Diese Nachricht hat Anlagen – zum Öffnen „Im Browser anzeigen“ oder im Webmail öffnen.").small().weak());
-                        }
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        let body = if m.body_text.trim().is_empty() { "(kein Inhalt)" } else { m.body_text.as_str() };
-                        ui.add(egui::Label::new(RichText::new(body).size(14.5)).selectable(true).wrap());
-                    });
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    if ui.button("↩  Antworten").clicked() {
-                        acts.push(Act::Compose(ComposeKind::Reply(s.id)));
-                    }
-                    if ui.button("↩↩  Allen antworten").clicked() {
-                        acts.push(Act::Compose(ComposeKind::ReplyAll(s.id)));
-                    }
-                    if ui.button("↪  Weiterleiten").clicked() {
-                        acts.push(Act::Compose(ComposeKind::Forward(s.id)));
-                    }
-                });
-            });
-        });
+        read_message(ui, &self.t, m, true, acts);
     }
 }
 
-fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
+/// Message header + body, used by the reading pane and the message window.
+pub(super) fn read_message(
+    ui: &mut egui::Ui,
+    t: &super::theme::Theme,
+    m: &Message,
+    actions: bool,
+    acts: &mut Vec<Act>,
+) {
+    let s = &m.summary;
+    egui::ScrollArea::vertical()
+        .id_salt(("reader", s.id))
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: 18,
+                    right: 18,
+                    top: 10,
+                    bottom: 18,
+                })
+                .show(ui, |ui| {
+                    if actions {
+                        ui.horizontal(|ui| {
+                            for (icon, label, kind) in [
+                                (ph::ARROW_BEND_UP_LEFT, "Antworten", 0),
+                                (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Allen antworten", 1),
+                                (ph::ARROW_BEND_UP_RIGHT, "Weiterleiten", 2),
+                            ] {
+                                let r = ui.add(
+                                    egui::Button::new((
+                                        RichText::new(icon).color(IC_PURPLE).size(15.0),
+                                        label,
+                                    ))
+                                    .frame(false),
+                                );
+                                if r.clicked() {
+                                    acts.push(Act::Compose(match kind {
+                                        0 => ComposeKind::Reply(s.id),
+                                        1 => ComposeKind::ReplyAll(s.id),
+                                        _ => ComposeKind::Forward(s.id),
+                                    }));
+                                }
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new(ph::GLOBE).color(IC_BLUE),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .on_hover_text("Im Browser anzeigen (Original-HTML)")
+                                        .clicked()
+                                    {
+                                        acts.push(Act::OpenInBrowser(s.id));
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(6.0);
+                    }
+                    ui.horizontal(|ui| {
+                        let name = if s.from_name.is_empty() {
+                            &s.from_addr
+                        } else {
+                            &s.from_name
+                        };
+                        super::avatar(ui, 48.0, name);
+                        ui.add_space(6.0);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            ui.label(
+                                RichText::new(super::long_date(&s.date))
+                                    .size(12.0)
+                                    .color(t.text_weak),
+                            );
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(name).size(16.0));
+                                if !s.from_name.is_empty() {
+                                    ui.label(
+                                        RichText::new(format!("<{}>", s.from_addr))
+                                            .size(12.0)
+                                            .color(t.text_weak),
+                                    );
+                                }
+                            });
+                            ui.label(RichText::new(&s.subject).size(13.5).strong());
+                            if !m.to.is_empty() {
+                                ui.label(
+                                    RichText::new(format!("An   {}", m.to))
+                                        .size(12.0)
+                                        .color(t.text_weak),
+                                );
+                            }
+                            if !m.cc.is_empty() {
+                                ui.label(
+                                    RichText::new(format!("Cc   {}", m.cc))
+                                        .size(12.0)
+                                        .color(t.text_weak),
+                                );
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                    let info = |ui: &mut egui::Ui, icon: &str, color: egui::Color32, text: &str| {
+                        egui::Frame::new()
+                            .fill(t.pane_alt)
+                            .inner_margin(egui::Margin::symmetric(8, 3))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(
+                                    RichText::new(format!("{icon}  {text}"))
+                                        .size(12.0)
+                                        .color(color),
+                                );
+                            });
+                    };
+                    if s.importance == "high" {
+                        info(
+                            ui,
+                            "!",
+                            t.danger,
+                            "Diese Nachricht wurde mit der Wichtigkeit \"Hoch\" gesendet.",
+                        );
+                    }
+                    if s.is_flagged {
+                        info(ui, ph::FLAG, t.flag, "Zur Nachverfolgung.");
+                    }
+                    for c in &s.categories {
+                        egui::Frame::new()
+                            .fill(super::category_color(c))
+                            .inner_margin(egui::Margin::symmetric(8, 2))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(RichText::new(c).size(12.0).color(egui::Color32::WHITE));
+                            });
+                    }
+                    if s.has_attachments {
+                        info(
+                            ui,
+                            ph::PAPERCLIP,
+                            t.text_weak,
+                            "Diese Nachricht enthält Anlagen – zum Öffnen \"Im Browser anzeigen\".",
+                        );
+                    }
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    let body = if m.body_text.trim().is_empty() {
+                        "(kein Inhalt)"
+                    } else {
+                        m.body_text.as_str()
+                    };
+                    ui.add(
+                        egui::Label::new(RichText::new(body).size(14.0))
+                            .selectable(true)
+                            .wrap(),
+                    );
+                });
+        });
+}
+
+fn sender(m: &MessageSummary) -> &str {
+    if m.from_name.is_empty() {
+        &m.from_addr
+    } else {
+        &m.from_name
+    }
+}
+
+fn strip_prefixes(s: &str) -> &str {
+    let mut s = s.trim();
+    loop {
+        let lower = s.to_lowercase();
+        match ["aw:", "re:", "wg:", "fw:", "fwd:"]
+            .iter()
+            .find(|p| lower.starts_with(*p))
+        {
+            Some(p) => s = s[p.len()..].trim_start(),
+            None => return s,
+        }
+    }
+}
+
+pub fn folder_icon(role: &str) -> &'static str {
+    match role {
+        "inbox" => ph::TRAY,
+        "sent" => ph::PAPER_PLANE_RIGHT,
+        "drafts" => ph::NOTE_PENCIL,
+        "trash" => ph::TRASH,
+        "junk" => ph::PROHIBIT,
+        "archive" => ph::ARCHIVE,
+        _ => ph::FOLDER_SIMPLE,
+    }
+}
+
+pub(super) fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
     for (name, color) in CATEGORIES {
-        let mut on = m.categories.iter().any(|c| c == name);
+        let on = m.categories.iter().any(|c| c == name);
+        let label = if on {
+            format!("{name}  \u{E182}")
+        } else {
+            name.to_string()
+        };
         if ui
-            .checkbox(&mut on, RichText::new(format!("■ {name}")).color(color))
-            .changed()
+            .add(
+                egui::Button::new((
+                    RichText::new("\u{E45E}")
+                        .family(egui::FontFamily::Name("fill".into()))
+                        .color(color)
+                        .size(16.0),
+                    label,
+                ))
+                .frame(false),
+            )
+            .clicked()
         {
             let mut cats: Vec<String> = m
                 .categories
@@ -911,7 +1558,7 @@ fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
                 .filter(|c| *c != name)
                 .cloned()
                 .collect();
-            if on {
+            if !on {
                 cats.push(name.to_string());
             }
             acts.push(Act::Patch(
@@ -925,7 +1572,7 @@ fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
         }
     }
     ui.separator();
-    if ui.button("Alle Kategorien entfernen").clicked() {
+    if ui.button("Alle Kategorien löschen").clicked() {
         acts.push(Act::Patch(
             m.id,
             MessagePatch {
@@ -937,7 +1584,7 @@ fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Vec<Act>) {
     }
 }
 
-/// Outlook groups the list into "Heute", "Gestern", "Diese Woche", …
+/// Outlook groups the list into "Heute", "Gestern", "Mittwoch", "Letzte Woche", …
 fn date_group(date: &str) -> &'static str {
     let Some(d) = super::parse_utc(date) else {
         return "Älter";
@@ -951,11 +1598,13 @@ fn date_group(date: &str) -> &'static str {
     } else if days == 1 {
         "Gestern"
     } else if d >= week_start {
-        "Diese Woche"
+        super::WEEKDAYS_LONG[d.weekday().num_days_from_monday() as usize]
     } else if d >= week_start - chrono::Duration::days(7) {
         "Letzte Woche"
+    } else if d >= week_start - chrono::Duration::days(14) {
+        "Vor zwei Wochen"
     } else if d.month() == today.month() && d.year() == today.year() {
-        "Diesen Monat"
+        "Anfang dieses Monats"
     } else {
         "Älter"
     }
@@ -969,5 +1618,11 @@ mod tests {
     fn groups_today() {
         assert_eq!(date_group(&crate::mail::now_utc()), "Heute");
         assert_eq!(date_group("2001-01-01T00:00:00Z"), "Älter");
+    }
+
+    #[test]
+    fn strips_reply_prefixes() {
+        assert_eq!(strip_prefixes("AW: WG: Re: Hallo"), "Hallo");
+        assert_eq!(strip_prefixes("Rechnung"), "Rechnung");
     }
 }
