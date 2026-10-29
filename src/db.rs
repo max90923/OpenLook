@@ -132,7 +132,8 @@ CREATE TABLE IF NOT EXISTS settings (
 "#;
 
 /// Columns added after the first release; created on older databases.
-const MIGRATIONS: [(&str, &str, &str); 3] = [
+const MIGRATIONS: [(&str, &str, &str); 4] = [
+    ("folders", "parent_remote", "TEXT NOT NULL DEFAULT ''"),
     ("events", "recurrence", "TEXT NOT NULL DEFAULT ''"),
     ("events", "response", "TEXT NOT NULL DEFAULT ''"),
     ("events", "organizer", "TEXT NOT NULL DEFAULT ''"),
@@ -244,14 +245,15 @@ pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
     let mut st = c.prepare(
         "SELECT f.id, f.account_id, f.remote_id, f.name, f.role,
                 (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id AND m.is_read = 0),
-                (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id)
+                (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id),
+                f.parent_remote
          FROM folders f
          ORDER BY f.account_id,
                   CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'sent' THEN 2
                               WHEN 'trash' THEN 3 WHEN 'junk' THEN 4 WHEN 'archive' THEN 5 ELSE 6 END,
-                  f.name",
+                  f.name COLLATE NOCASE",
     )?;
-    let rows = st
+    let rows: Vec<Folder> = st
         .query_map([], |r| {
             Ok(Folder {
                 id: r.get(0)?,
@@ -261,10 +263,47 @@ pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
                 role: r.get(4)?,
                 unread: r.get(5)?,
                 total: r.get(6)?,
+                parent_remote: r.get(7)?,
+                depth: 0,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(rows)
+    Ok(tree_order(rows))
+}
+
+/// Order folders as a tree (each folder followed by its subfolders) and set
+/// their depth; folders whose parent is unknown are treated as top level.
+fn tree_order(rows: Vec<Folder>) -> Vec<Folder> {
+    let key = |f: &Folder| (f.account_id, f.remote_id.clone());
+    let known: std::collections::HashSet<(i64, String)> = rows.iter().map(key).collect();
+    let mut out = Vec::with_capacity(rows.len());
+    fn visit(f: &Folder, depth: i64, rows: &[Folder], out: &mut Vec<Folder>) {
+        if depth > 16 || out.iter().any(|x: &Folder| x.id == f.id) {
+            return;
+        }
+        out.push(Folder { depth, ..f.clone() });
+        for c in rows.iter().filter(|c| {
+            c.account_id == f.account_id
+                && c.parent_remote == f.remote_id
+                && !c.parent_remote.is_empty()
+        }) {
+            visit(c, depth + 1, rows, out);
+        }
+    }
+    for f in rows.iter().filter(|f| {
+        f.parent_remote.is_empty() || !known.contains(&(f.account_id, f.parent_remote.clone()))
+    }) {
+        visit(f, 0, &rows, &mut out);
+    }
+    out
+}
+
+pub fn set_folder_parent(c: &Connection, id: i64, parent_remote: &str) -> Result<()> {
+    c.execute(
+        "UPDATE folders SET parent_remote = ? WHERE id = ?",
+        params![parent_remote, id],
+    )?;
+    Ok(())
 }
 
 pub fn get_folder(c: &Connection, id: i64) -> Result<Option<Folder>> {
@@ -1063,6 +1102,34 @@ mod tests {
         assert_eq!(list_journal(&c).unwrap()[0], JournalEntry { id: jid, ..j });
         delete_journal(&c, jid).unwrap();
         assert!(list_journal(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn folders_form_a_tree() {
+        let c = mem();
+        let acc = insert_account(&c, AccountKind::Imap, "T", "t@x.de", "{}").unwrap();
+        upsert_folder(&c, acc, "INBOX", "Posteingang", "inbox").unwrap();
+        upsert_folder(&c, acc, "Kunden", "Kunden", "other").unwrap();
+        let a = upsert_folder(&c, acc, "Kunden/Alpha", "Alpha", "other").unwrap();
+        let b = upsert_folder(&c, acc, "Kunden/Alpha/Briefe", "Briefe", "other").unwrap();
+        upsert_folder(&c, acc, "Archiv 2020", "Archiv 2020", "other").unwrap();
+        set_folder_parent(&c, a, "Kunden").unwrap();
+        set_folder_parent(&c, b, "Kunden/Alpha").unwrap();
+        let order: Vec<(String, i64)> = list_folders(&c)
+            .unwrap()
+            .into_iter()
+            .map(|f| (f.name, f.depth))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("Posteingang".into(), 0),
+                ("Archiv 2020".into(), 0),
+                ("Kunden".into(), 0),
+                ("Alpha".into(), 1),
+                ("Briefe".into(), 2)
+            ]
+        );
     }
 
     #[test]

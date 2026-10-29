@@ -67,6 +67,10 @@ pub struct Folder {
     pub role: String,
     pub unread: i64,
     pub total: i64,
+    /// Remote id of the parent folder ("" = top level).
+    pub parent_remote: String,
+    /// Nesting level in the folder tree.
+    pub depth: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

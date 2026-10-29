@@ -909,6 +909,7 @@ impl App {
         acts: &mut Vec<Act>,
     ) {
         let t = &self.t;
+        let indent = indent + f.depth as f32 * 16.0;
         let active = self.mail.folder_id == Some(f.id)
             && (self.search.trim().is_empty() || !self.mail.search_all);
         let w = ui.available_width();

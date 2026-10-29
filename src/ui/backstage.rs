@@ -132,7 +132,49 @@ impl App {
         }
     }
 
+    fn shared_mailbox_dialog(&mut self, ctx: &egui::Context) {
+        let Some((owner, address)) = &mut self.shared_dialog else {
+            return;
+        };
+        let mut open = true;
+        let mut ok = false;
+        egui::Window::new("Freigegebenes Postfach hinzufügen")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label("E-Mail-Adresse des Postfachs, für das Sie Berechtigungen haben:");
+                let r = ui.add(
+                    egui::TextEdit::singleline(address)
+                        .hint_text("team@firma.de")
+                        .desired_width(320.0),
+                );
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    ok = true;
+                }
+                ui.add_space(6.0);
+                if ui.button("Hinzufügen").clicked() {
+                    ok = true;
+                }
+            });
+        if ok {
+            let (owner, address) = (*owner, address.trim().to_string());
+            self.shared_dialog = None;
+            self.spawn(
+                Some("Freigegebenes Postfach hinzugefügt."),
+                move |st, _| async move {
+                    let id = providers::graph::add_shared_mailbox(&st, owner, &address).await?;
+                    providers::sync(&st, id).await
+                },
+            );
+        } else if !open {
+            self.shared_dialog = None;
+        }
+    }
+
     fn account_info(&mut self, ui: &mut egui::Ui) {
+        self.shared_mailbox_dialog(ui.ctx());
         let t = self.t;
         ui.label(RichText::new("Kontoinformationen").size(34.0).color(t.text));
         ui.add_space(18.0);
@@ -263,9 +305,18 @@ impl App {
         );
         let acc_id = acc.id;
         let is_local = acc.kind == AccountKind::Local;
+        let is_owner_graph = acc.kind == AccountKind::Graph
+            && db::account_config(&self.st.db(), acc.id)
+                .map(|c| !c.contains("\"shared_of\""))
+                .unwrap_or(false);
         chrome::menu(&r, |ui| {
             if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Konto hinzufügen…") {
                 self.open_add_account();
+            }
+            if is_owner_graph
+                && chrome::menu_item(ui, ph::USERS, IC_BLUE, "Freigegebenes Postfach hinzufügen…")
+            {
+                self.shared_dialog = Some((acc_id, String::new()));
             }
             if !is_local
                 && chrome::menu_item(ui, ph::ARROWS_CLOCKWISE, IC_BLUE, "Jetzt synchronisieren")

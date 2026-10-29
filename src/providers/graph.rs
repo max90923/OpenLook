@@ -13,7 +13,64 @@ use serde_json::{json, Value};
 use crate::{db, mail, models::*, providers::OutgoingMail, state::AppState};
 
 const GRAPH: &str = "https://graph.microsoft.com/v1.0";
-pub const SCOPES: &str = "offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite";
+/// Delegated permissions; the ".Shared" ones allow opening mailboxes that
+/// colleagues shared with the signed-in user.
+pub const SCOPES: &str = "offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite \
+                          Mail.ReadWrite.Shared Mail.Send.Shared Calendars.ReadWrite.Shared Contacts.ReadWrite.Shared MailboxSettings.ReadWrite";
+
+/// Graph endpoint, overridable with `MAILCRAFT_GRAPH_URL` (national clouds, tests).
+fn graph_url() -> String {
+    std::env::var("MAILCRAFT_GRAPH_URL").unwrap_or_else(|_| GRAPH.to_string())
+}
+
+/// Account whose tokens are used, and the shared mailbox address if the
+/// account is a mailbox shared with that user.
+fn target(state: &AppState, account_id: i64) -> Result<(i64, Option<String>)> {
+    let cfg: Value = serde_json::from_str(&db::account_config(&state.db(), account_id)?)?;
+    Ok(match (cfg["shared_of"].as_i64(), cfg["mailbox"].as_str()) {
+        (Some(owner), Some(mailbox)) => (owner, Some(mailbox.to_string())),
+        _ => (account_id, None),
+    })
+}
+
+/// `/me/...` addresses the signed-in user; a shared mailbox is `/users/{address}/...`.
+fn rewrite_path(path: &str, shared: Option<&str>) -> String {
+    match shared {
+        Some(m) if path == "/me" || path.starts_with("/me/") || path.starts_with("/me?") => {
+            format!("/users/{m}{}", &path[3..])
+        }
+        _ => path.to_string(),
+    }
+}
+
+/// Add a mailbox that a colleague shared with the signed-in Microsoft 365 user.
+pub async fn add_shared_mailbox(state: &AppState, owner: i64, address: &str) -> Result<i64> {
+    let address = address.trim();
+    if !address.contains('@') {
+        bail!("Bitte die E-Mail-Adresse des freigegebenen Postfachs eingeben");
+    }
+    // Probe access first so a missing permission gives a clear error.
+    let probe = call(
+        state,
+        owner,
+        Method::GET,
+        &format!("/users/{address}/mailFolders/inbox?$select=id"),
+        None,
+    )
+    .await;
+    if let Err(e) = probe {
+        bail!("Kein Zugriff auf das Postfach {address}: {e:#}");
+    }
+    let cfg = json!({ "shared_of": owner, "mailbox": address });
+    let id = db::insert_account(
+        &state.db(),
+        AccountKind::Graph,
+        address,
+        address,
+        &cfg.to_string(),
+    )?;
+    Ok(id)
+}
 /// Upper bound of pages followed per collection during a sync.
 const MAX_PAGES: usize = 10;
 
@@ -110,7 +167,7 @@ pub async fn finish_device_flow(state: &AppState, dc: &DeviceCode) -> Result<i64
     };
     let me: Value = state
         .http
-        .get(format!("{GRAPH}/me"))
+        .get(format!("{}/me", graph_url()))
         .bearer_auth(&cfg.access_token)
         .send()
         .await?
@@ -177,11 +234,12 @@ async fn call(
     path: &str,
     body: Option<Value>,
 ) -> Result<Value> {
-    let token = access_token(state, account_id).await?;
-    let url = if path.starts_with("https://") {
+    let (token_account, shared) = target(state, account_id)?;
+    let token = access_token(state, token_account).await?;
+    let url = if path.starts_with("http://") || path.starts_with("https://") {
         path.to_string()
     } else {
-        format!("{GRAPH}{path}")
+        format!("{}{}", graph_url(), rewrite_path(path, shared.as_deref()))
     };
     let mut req = state.http.request(method, &url).bearer_auth(token).header(
         "Prefer",
@@ -264,7 +322,10 @@ pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
     sync_mail(state, account_id).await.context("E-Mail")?;
     sync_events(state, account_id).await.context("Kalender")?;
     sync_contacts(state, account_id).await.context("Kontakte")?;
-    sync_tasks(state, account_id).await.context("Aufgaben")?;
+    // Microsoft To Do lists cannot be opened for other users' mailboxes.
+    if target(state, account_id)?.1.is_none() {
+        sync_tasks(state, account_id).await.context("Aufgaben")?;
+    }
     Ok(())
 }
 
@@ -290,17 +351,37 @@ async fn sync_mail(state: &AppState, account_id: i64) -> Result<()> {
             roles.insert(s(&f["id"]), role);
         }
     }
-    let folders = get_all(
+    // Top-level folders plus their subfolders (breadth first, a few levels deep).
+    let mut folders: Vec<(Value, String)> = get_all(
         state,
         account_id,
         "/me/mailFolders?$top=100&includeHiddenFolders=false",
     )
-    .await?;
+    .await?
+    .into_iter()
+    .map(|f| (f, String::new()))
+    .collect();
+    let mut i = 0;
+    while i < folders.len() && folders.len() < 500 {
+        let (f, _) = &folders[i];
+        if f["childFolderCount"].as_i64().unwrap_or(0) > 0 {
+            let id = s(&f["id"]);
+            let children = get_all(
+                state,
+                account_id,
+                &format!("/me/mailFolders/{id}/childFolders?$top=100"),
+            )
+            .await?;
+            folders.extend(children.into_iter().map(|c| (c, id.clone())));
+        }
+        i += 1;
+    }
     let mut keep_folders = vec![];
-    for f in folders {
+    for (f, parent) in folders {
         let rid = s(&f["id"]);
         let role = roles.get(&rid).copied().unwrap_or("other");
         let fid = db::upsert_folder(&state.db(), account_id, &rid, &s(&f["displayName"]), role)?;
+        db::set_folder_parent(&state.db(), fid, &parent)?;
         keep_folders.push(fid);
 
         let msgs = call(
@@ -918,6 +999,23 @@ pub async fn delete_task(state: &AppState, t: &Task) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewrites_paths_for_shared_mailboxes() {
+        assert_eq!(
+            rewrite_path("/me/messages/1", Some("team@x.de")),
+            "/users/team@x.de/messages/1"
+        );
+        assert_eq!(rewrite_path("/me", Some("team@x.de")), "/users/team@x.de");
+        assert_eq!(
+            rewrite_path("/me/mailFolders/inbox", None),
+            "/me/mailFolders/inbox"
+        );
+        assert_eq!(
+            rewrite_path("/users/a@x.de/mailFolders", Some("team@x.de")),
+            "/users/a@x.de/mailFolders"
+        );
+    }
 
     #[test]
     fn parses_graph_datetime() {

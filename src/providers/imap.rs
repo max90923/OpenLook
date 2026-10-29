@@ -108,19 +108,33 @@ pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
 
     let names: Vec<_> = s.list(None, Some("*")).await?.try_collect().await?;
     let mut keep_folders = vec![];
+    let selectable: Vec<&str> = names
+        .iter()
+        .filter(|n| !n.attributes().contains(&NameAttribute::NoSelect))
+        .map(|n| n.name())
+        .collect();
     for n in &names {
         if n.attributes().contains(&NameAttribute::NoSelect) {
             continue;
         }
         let remote = n.name().to_string();
         let role = folder_role(&remote, n.attributes());
+        // Subfolders: "Kunden/Alpha" is "Alpha" below "Kunden". Folders below a
+        // non-selectable parent (e.g. a public namespace) keep their full path.
+        let delim = n.delimiter().unwrap_or("/");
+        let (parent, leaf) = match remote.rsplit_once(delim) {
+            Some((p, l)) if selectable.contains(&p) => (p.to_string(), l.to_string()),
+            Some(_) => (String::new(), remote.replace(delim, " / ")),
+            None => (String::new(), remote.clone()),
+        };
         let folder_id = db::upsert_folder(
             &state.db(),
             account_id,
             &remote,
-            &display_name(&remote, role),
+            &display_name(&leaf, role),
             role,
         )?;
+        db::set_folder_parent(&state.db(), folder_id, &parent)?;
         keep_folders.push(folder_id);
         sync_folder(state, &mut s, account_id, folder_id, &remote).await?;
     }

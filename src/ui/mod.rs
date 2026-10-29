@@ -256,6 +256,8 @@ pub struct App {
     windows: Vec<WinEntry>,
     next_window: u64,
     device_code: Option<(String, String)>,
+    /// "Freigegebenes Postfach hinzufügen": (owner account, address).
+    shared_dialog: Option<(i64, String)>,
 }
 
 impl App {
@@ -299,6 +301,7 @@ impl App {
             windows: vec![],
             next_window: 1,
             device_code: None,
+            shared_dialog: None,
         };
         app.apply_style();
         app.start_background_sync();

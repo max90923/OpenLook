@@ -3,6 +3,8 @@
 //! The built-in local account only touches the cache.
 
 pub mod graph;
+#[cfg(test)]
+mod graph_mock;
 pub mod imap;
 
 use anyhow::{anyhow, bail, Result};
@@ -339,7 +341,9 @@ pub async fn create_folder(
             graph::create_folder(state, account_id, parent_remote.as_deref(), name).await?
         }
     };
-    db::upsert_folder(&state.db(), account_id, &remote, name, "other")
+    let id = db::upsert_folder(&state.db(), account_id, &remote, name, "other")?;
+    db::set_folder_parent(&state.db(), id, parent_remote.as_deref().unwrap_or(""))?;
+    Ok(id)
 }
 
 fn editable_folder(state: &AppState, id: i64) -> Result<Folder> {
@@ -740,6 +744,27 @@ mod it {
         )
         .await
         .unwrap();
+        // Subfolders appear below their parent after a sync.
+        create_folder(&state, acc, Some(projects), "Angebote")
+            .await
+            .unwrap();
+        sync(&state, acc).await.unwrap();
+        let tree = db::list_folders(&state.db()).unwrap();
+        let ppos = tree.iter().position(|f| f.id == projects).unwrap();
+        assert_eq!(
+            (tree[ppos + 1].name.as_str(), tree[ppos + 1].depth),
+            ("Angebote", 1),
+            "Unterordner fehlt: {tree:?}"
+        );
+        delete_folder(&state, tree[ppos + 1].id).await.unwrap();
+        // Public/shared IMAP namespaces are listed like other folders.
+        if let Ok(public) = std::env::var("MAILCRAFT_IT_PUBLIC_FOLDER") {
+            let f = tree
+                .iter()
+                .find(|f| f.remote_id == public)
+                .unwrap_or_else(|| panic!("öffentlicher Ordner {public} fehlt"));
+            assert!(f.total > 0, "Nachrichten im öffentlichen Ordner fehlen");
+        }
         move_message(&state, m.id, projects).await.unwrap();
         sync(&state, acc).await.unwrap();
         let pf = db::list_folders(&state.db())

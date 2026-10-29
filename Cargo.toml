@@ -28,3 +28,6 @@ webpki-roots = "1"
 rfd = "0.17.2"
 keyring = { version = "3", features = ["apple-native", "windows-native", "async-secret-service", "tokio", "crypto-rust"] }
 base64 = "0.23.1"
+
+[dev-dependencies]
+axum = "0.8"
