@@ -6,7 +6,7 @@ Usage: tools/gen_icons.py <path to @iconify-json/system-uicons>/icons.json
 Every icon is drawn as a line icon in the given Outlook accent colour;
 "name:filled" also fills the shape.
 """
-import json, os, sys
+import json, os, subprocess, sys
 
 ICONS = json.load(open(sys.argv[1], encoding="utf-8"))["icons"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -156,4 +156,5 @@ with open(os.path.join(ROOT, "src", "ui", "icons.rs"), "w", encoding="utf-8") as
     f.write("pub fn svg(glyph: &str, _large: bool) -> Option<(&'static str, &'static [u8])> {\n")
     f.write("    ICONS.iter().find(|e| e.0 == glyph).map(|e| (e.1, e.2))\n")
     f.write("}\n")
+subprocess.run(["rustfmt", "--edition", "2021", os.path.join(ROOT, "src", "ui", "icons.rs")], check=True)
 print(f"{len(rows)} icons generated")
