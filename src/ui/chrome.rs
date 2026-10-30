@@ -187,6 +187,35 @@ pub fn title_bar(
     close
 }
 
+/// Draw a ribbon icon: the Fluent colour icon when one is mapped to the
+/// glyph, otherwise the glyph itself in `color`.
+pub fn paint_icon(
+    ui: &egui::Ui,
+    icon: &str,
+    color: Color32,
+    center: egui::Pos2,
+    size: f32,
+    alpha: f32,
+) {
+    match super::icons::svg(icon, size > 24.0) {
+        Some((uri, bytes)) => {
+            let rect = egui::Rect::from_center_size(center, egui::vec2(size, size));
+            egui::Image::from_bytes(uri, bytes)
+                .tint(Color32::WHITE.gamma_multiply(alpha))
+                .paint_at(ui, rect);
+        }
+        None => {
+            ui.painter().text(
+                center,
+                egui::Align2::CENTER_CENTER,
+                icon,
+                fill_font(size * 0.95),
+                color.gamma_multiply(alpha),
+            );
+        }
+    }
+}
+
 /// Small icon button for the quick access toolbar.
 pub fn qat_button(ui: &mut egui::Ui, t: &Theme, icon: &str, tip: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(26.0, TITLE_H - 4.0), Sense::click());
@@ -385,12 +414,13 @@ pub fn large(
     );
     paint_button_bg(ui, t, r, &resp, enabled);
     let alpha = if enabled { 1.0 } else { 0.35 };
-    ui.painter().text(
-        egui::pos2(r.center().x, r.top() + 20.0),
-        egui::Align2::CENTER_CENTER,
+    paint_icon(
+        ui,
         icon,
-        fill_font(30.0),
-        color.gamma_multiply(alpha),
+        color,
+        egui::pos2(r.center().x, r.top() + 20.0),
+        32.0,
+        alpha,
     );
     for (i, l) in lines.iter().enumerate() {
         ui.painter().text(
@@ -427,12 +457,13 @@ pub fn small(
     );
     paint_button_bg(ui, t, r, &resp, enabled);
     let alpha = if enabled { 1.0 } else { 0.35 };
-    ui.painter().text(
-        r.left_center() + egui::vec2(12.0, 0.0),
-        egui::Align2::CENTER_CENTER,
+    paint_icon(
+        ui,
         icon,
-        fill_font(16.0),
-        color.gamma_multiply(alpha),
+        color,
+        r.left_center() + egui::vec2(12.0, 0.0),
+        16.0,
+        alpha,
     );
     ui.painter().galley(
         r.left_center() + egui::vec2(24.0, -g.size().y / 2.0),
@@ -477,9 +508,14 @@ pub fn menu(resp: &egui::Response, add: impl FnOnce(&mut egui::Ui)) {
 
 /// Menu entry with an icon.
 pub fn menu_item(ui: &mut egui::Ui, icon: &str, color: Color32, label: &str) -> bool {
-    let clicked = ui
-        .add(egui::Button::new((RichText::new(icon).color(color).size(15.0), label)).frame(false))
-        .clicked();
+    let button = match super::icons::svg(icon, false) {
+        Some((uri, bytes)) => egui::Button::new((
+            egui::Image::from_bytes(uri, bytes).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+            label,
+        )),
+        None => egui::Button::new((RichText::new(icon).color(color).size(15.0), label)),
+    };
+    let clicked = ui.add(button.frame(false)).clicked();
     if clicked {
         ui.close();
     }

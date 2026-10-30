@@ -12,6 +12,7 @@ mod calendar;
 mod chrome;
 mod compose;
 mod html;
+mod icons;
 mod mail;
 mod notes;
 mod people;
@@ -269,6 +270,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let prefs = Prefs::load(&st.db());
         chrome::setup_fonts(&cc.egui_ctx);
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         let mut app = Self {
             st,
             rt,
