@@ -913,7 +913,7 @@ impl App {
                         {
                             answer = Some("tentativelyAccept");
                         }
-                        if chrome::large(ui, &t, ph::X, IC_RED, "Ablehnen", true).clicked() {
+                        if chrome::large(ui, &t, ph::X_CIRCLE, IC_RED, "Ablehnen", true).clicked() {
                             answer = Some("decline");
                         }
                     });

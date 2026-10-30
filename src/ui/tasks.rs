@@ -339,12 +339,13 @@ impl App {
             ui.painter()
                 .vline(x, head.y_range(), egui::Stroke::new(1.0_f32, t.border));
         }
-        ui.painter().text(
-            egui::pos2(x + 10.0, head.center().y),
-            egui::Align2::LEFT_CENTER,
-            ph::FLAG,
-            egui::FontId::proportional(12.0),
+        chrome::paint_icon(
+            ui,
+            ph::FLAG_BANNER,
             t.text,
+            egui::pos2(x + 16.0, head.center().y),
+            14.0,
+            1.0,
         );
 
         let mut save: Vec<Task> = vec![];
@@ -504,17 +505,11 @@ impl App {
                     let (icon, fc) = if task.completed {
                         (ph::CHECK, IC_GREEN)
                     } else if task.due.is_empty() {
-                        (ph::FLAG, t.text_weak)
+                        (ph::FLAG_BANNER, t.text_weak)
                     } else {
-                        (egui_phosphor::fill::FLAG, t.flag)
+                        (ph::FLAG, t.flag)
                     };
-                    ui.painter().text(
-                        flag.center(),
-                        egui::Align2::CENTER_CENTER,
-                        icon,
-                        chrome::fill_font(13.0),
-                        fc,
-                    );
+                    chrome::paint_icon(ui, icon, fc, flag.center(), 15.0, 1.0);
 
                     let pos = resp.interact_pointer_pos();
                     if resp.clicked() {

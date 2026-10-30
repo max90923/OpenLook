@@ -3,8 +3,8 @@
 assets/icons and generate src/ui/icons.rs.
 
 Usage: tools/gen_icons.py <path to @fluentui/svg-icons package>/icons
-Colour icons are taken as they are; single-colour ("regular") icons get the
-Outlook accent colour given below.
+Colour icons are taken as they are; single-colour icons get the Outlook
+accent colour given below.
 """
 import os, sys
 
@@ -19,7 +19,11 @@ MAP = [
     ("ENVELOPE_SIMPLE", "mail", None),
     ("ENVELOPE_SIMPLE_OPEN", "mail_read", BLUE),
     ("FILE_PLUS", "document_add", None),
-    ("X", "delete", RED),
+    ("X", "delete", GREY),
+    ("TRASH", "delete", GREY),
+    ("X_CIRCLE", "dismiss", RED),
+    ("FLAG_BANNER", "flag", GREY),
+    ("PAPERCLIP_HORIZONTAL", "attach", GREY),
     ("ARCHIVE", "archive", GREY),
     ("PROHIBIT", "mail_prohibited", RED),
     ("TRAY", "mail_inbox", BLUE),
@@ -34,7 +38,7 @@ MAP = [
     ("FUNNEL", "filter", BLUE),
     ("PRINTER", "print", GREY),
     ("TAG", "tag_multiple", PURPLE),
-    ("FLAG", "flag", None),
+    ("FLAG", "flag:filled", RED),
     ("PUSH_PIN", "pin", None),
     ("ADDRESS_BOOK", "book_contacts", None),
     ("CALENDAR_PLUS", "calendar", None),
@@ -108,8 +112,8 @@ MAP = [
     ("LIGHTNING", "flash", YELLOW),
 ]
 
-def find(base, size):
-    for variant in ("color", "regular"):
+def find(base, size, variants):
+    for variant in variants:
         for s in (size, 24, 20, 32, 28, 16):
             p = os.path.join(SRC, f"{base}_{s}_{variant}.svg")
             if os.path.exists(p):
@@ -119,11 +123,14 @@ def find(base, size):
 os.makedirs(OUT, exist_ok=True)
 rows = []
 for key, base, colour in MAP:
+    # "name:filled" picks a variant; a given colour means the single-colour icon.
+    base, _, want = base.partition(":")
+    variants = (want,) if want else ("regular", "color") if colour else ("color", "regular")
     files = []
     for size in (20, 32):
-        path, variant = find(base, size)
+        path, variant = find(base, size, variants)
         svg = open(path, encoding="utf-8").read()
-        if variant == "regular" and colour:
+        if variant != "color" and colour:
             svg = svg.replace("<svg ", f'<svg fill="{colour}" ', 1)
         name = f"{key.lower()}_{size}.svg"
         open(os.path.join(OUT, name), "w", encoding="utf-8").write(svg)

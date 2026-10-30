@@ -935,7 +935,7 @@ impl App {
             }
         });
         chrome::group(ui, &t, "Schließen", |ui| {
-            if chrome::large(ui, &t, ph::X, IC_RED, "Suche\nschließen", true).clicked() {
+            if chrome::large(ui, &t, ph::X_CIRCLE, IC_RED, "Suche\nschließen", true).clicked() {
                 self.search.clear();
                 let m = &mut self.mail;
                 (
@@ -1862,16 +1862,17 @@ impl App {
                 egui::pos2(rx - 7.0, rect.top() + 13.0),
                 egui::vec2(16.0, 16.0),
             );
-            p.text(
-                r.center(),
-                egui::Align2::CENTER_CENTER,
+            chrome::paint_icon(
+                ui,
                 if m.is_flagged {
-                    egui_phosphor::fill::FLAG
-                } else {
                     ph::FLAG
+                } else {
+                    ph::FLAG_BANNER
                 },
-                chrome::fill_font(14.0),
                 flag_color,
+                r.center(),
+                16.0,
+                1.0,
             );
             icon_hits.push((r, 1));
         }
@@ -1881,23 +1882,18 @@ impl App {
                 egui::pos2(rx - 7.0, rect.top() + 13.0),
                 egui::vec2(16.0, 16.0),
             );
-            p.text(
-                r.center(),
-                egui::Align2::CENTER_CENTER,
-                ph::X,
-                egui::FontId::proportional(14.0),
-                t.text_weak,
-            );
+            chrome::paint_icon(ui, ph::TRASH, t.text_weak, r.center(), 16.0, 1.0);
             icon_hits.push((r, 0));
             rx -= 20.0;
         }
         if m.has_attachments {
-            p.text(
-                egui::pos2(rx - 7.0, rect.top() + 13.0),
-                egui::Align2::CENTER_CENTER,
-                ph::PAPERCLIP,
-                egui::FontId::proportional(13.0),
+            chrome::paint_icon(
+                ui,
+                ph::PAPERCLIP_HORIZONTAL,
                 t.text_weak,
+                egui::pos2(rx - 7.0, rect.top() + 13.0),
+                14.0,
+                1.0,
             );
             rx -= 18.0;
         }
@@ -2122,13 +2118,7 @@ pub(super) fn read_message(
                                 (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Allen antworten", 1),
                                 (ph::ARROW_BEND_UP_RIGHT, "Weiterleiten", 2),
                             ] {
-                                let r = ui.add(
-                                    egui::Button::new((
-                                        RichText::new(icon).color(IC_PURPLE).size(15.0),
-                                        label,
-                                    ))
-                                    .frame(false),
-                                );
+                                let r = chrome::icon_button(ui, icon, IC_PURPLE, label);
                                 if r.clicked() {
                                     acts.push(Act::Compose(match kind {
                                         0 => ComposeKind::Reply(s.id),
@@ -2140,13 +2130,7 @@ pub(super) fn read_message(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                RichText::new(ph::GLOBE).color(IC_BLUE),
-                                            )
-                                            .frame(false),
-                                        )
+                                    if chrome::icon_button(ui, ph::GLOBE, IC_BLUE, "")
                                         .on_hover_text("Im Browser anzeigen (Original-HTML)")
                                         .clicked()
                                     {
@@ -2206,11 +2190,21 @@ pub(super) fn read_message(
                             .inner_margin(egui::Margin::symmetric(8, 3))
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                ui.label(
-                                    RichText::new(format!("{icon}  {text}"))
-                                        .size(12.0)
-                                        .color(color),
-                                );
+                                // Outlook's InfoBar: coloured icon, normal text.
+                                ui.horizontal(|ui| {
+                                    match super::icons::svg(icon, false) {
+                                        Some((uri, bytes)) => {
+                                            ui.add(
+                                                egui::Image::from_bytes(uri, bytes)
+                                                    .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                                            );
+                                        }
+                                        None => {
+                                            ui.label(RichText::new(icon).size(12.0).color(color));
+                                        }
+                                    }
+                                    ui.label(RichText::new(text).size(12.0).color(t.text));
+                                });
                             });
                     };
                     if s.importance == "high" {

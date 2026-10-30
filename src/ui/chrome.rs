@@ -522,6 +522,18 @@ pub fn menu_item(ui: &mut egui::Ui, icon: &str, color: Color32, label: &str) -> 
     clicked
 }
 
+/// Flat button with a 16 px Fluent icon and an optional label.
+pub fn icon_button(ui: &mut egui::Ui, icon: &str, color: Color32, label: &str) -> egui::Response {
+    let button = match super::icons::svg(icon, false) {
+        Some((uri, bytes)) => egui::Button::new((
+            egui::Image::from_bytes(uri, bytes).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+            label,
+        )),
+        None => egui::Button::new((RichText::new(icon).color(color).size(15.0), label)),
+    };
+    ui.add(button.frame(false))
+}
+
 /// A native top-level window (own OS window) with Office chrome.
 /// Returns true when the user closed it.
 pub fn native_window(
