@@ -1,4 +1,4 @@
-//! Reminder window ("Erinnerungen") for appointments, as in Outlook.
+//! Reminder window ("Reminders") for appointments, as in Outlook.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -54,9 +54,9 @@ pub fn due_events(events: &[Event], now: chrono::NaiveDateTime) -> Vec<Event> {
 fn due_in(e: &Event) -> String {
     let mins = (local(&e.start) - Local::now().naive_local()).num_minutes();
     match mins {
-        m if m > 0 => format!("{m} Minuten"),
-        0 => "Jetzt".into(),
-        m => format!("vor {} Minuten überfällig", -m),
+        m if m > 0 => format!("{m} minutes"),
+        0 => "Now".into(),
+        m => format!("{} minutes overdue", -m),
     }
 }
 
@@ -83,9 +83,9 @@ impl App {
         let t = self.t;
         let n = self.reminders.due.len();
         let title = if n == 1 {
-            "1 Erinnerung".to_string()
+            "1 Reminder".to_string()
         } else {
-            format!("{n} Erinnerungen")
+            format!("{n} Reminders")
         };
         let mut open = None;
         let mut dismiss: Vec<(i64, String)> = vec![];
@@ -108,12 +108,12 @@ impl App {
                                 ui.label(RichText::new(&sel.title).strong());
                                 let s = local(&sel.start);
                                 ui.label(format!(
-                                    "Beginn: {} {}",
+                                    "Start time: {} {}",
                                     super::date_long(s.date()),
                                     s.format("%H:%M")
                                 ));
                                 if !sel.location.is_empty() {
-                                    ui.label(format!("Ort: {}", sel.location));
+                                    ui.label(format!("Location: {}", sel.location));
                                 }
                             });
                         });
@@ -126,14 +126,14 @@ impl App {
                         ui.painter().text(
                             head.left_center() + egui::vec2(8.0, 0.0),
                             egui::Align2::LEFT_CENTER,
-                            "Betreff",
+                            "Subject",
                             egui::FontId::proportional(12.5),
                             t.text,
                         );
                         ui.painter().text(
                             head.right_center() - egui::vec2(150.0, 0.0),
                             egui::Align2::LEFT_CENTER,
-                            "Fällig in",
+                            "Due in",
                             egui::FontId::proportional(12.5),
                             t.text,
                         );
@@ -172,16 +172,16 @@ impl App {
                             });
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Alle schließen").clicked() {
+                            if ui.button("Dismiss All").clicked() {
                                 dismiss.extend(r.due.iter().map(key));
                             }
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("Schließen").clicked() {
+                                    if ui.button("Dismiss").clicked() {
                                         dismiss.push(key(&r.due[r.selected]));
                                     }
-                                    if ui.button("Element öffnen").clicked() {
+                                    if ui.button("Open Item").clicked() {
                                         open = Some(r.due[r.selected].clone());
                                     }
                                 },
@@ -189,7 +189,7 @@ impl App {
                         });
                         ui.add_space(6.0);
                         ui.label(
-                            "Klicken Sie auf \"Erneut erinnern\", um erneut erinnert zu werden in:",
+                            "Click Snooze to be reminded in:",
                         );
                         ui.horizontal(|ui| {
                             egui::ComboBox::from_id_salt("snooze")
@@ -204,7 +204,7 @@ impl App {
                                         );
                                     }
                                 });
-                            if ui.button("Erneut erinnern").clicked() {
+                            if ui.button("Snooze").clicked() {
                                 snooze.push(key(&r.due[r.selected]));
                             }
                         });

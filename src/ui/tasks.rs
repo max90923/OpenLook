@@ -1,5 +1,5 @@
-//! Tasks module: classic table view ("Einfache Liste") with the
-//! "Klicken Sie hier, um eine neue Aufgabe zu erstellen" row, and the task window.
+//! Tasks module: classic table view ("Simple List") with the
+//! "Click here to add a new Task" row, and the task window.
 
 use chrono::{Datelike, Duration, NaiveDate};
 use eframe::egui::{self, RichText, Sense};
@@ -24,7 +24,7 @@ pub enum TaskFilter {
 #[derive(Default)]
 pub struct TasksView {
     filter: TaskFilter,
-    /// (account id, list name); None = all lists ("Aufgabenliste").
+    /// (account id, list name); None = all lists ("To-Do List").
     list: Option<(i64, String)>,
     selected: Option<i64>,
     new_title: String,
@@ -120,13 +120,13 @@ impl App {
             .selected
             .and_then(|id| self.data.tasks.iter().find(|x| x.id == id))
             .cloned();
-        chrome::group(ui, &t, "Neu", |ui| {
+        chrome::group(ui, &t, "New", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::CHECK_SQUARE_OFFSET,
                 IC_GREEN,
-                "Neue\nAufgabe",
+                "New\nTask",
                 true,
             )
             .clicked()
@@ -134,22 +134,22 @@ impl App {
                 self.new_task();
             }
         });
-        chrome::group(ui, &t, "Löschen", |ui| {
-            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", sel.is_some()).clicked() {
+        chrome::group(ui, &t, "Delete", |ui| {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Delete", sel.is_some()).clicked() {
                 let id = sel.as_ref().unwrap().id;
                 self.tasks.selected = None;
-                self.spawn(Some("Aufgabe gelöscht."), move |st, _| async move {
+                self.spawn(Some("Task deleted."), move |st, _| async move {
                     providers::delete_task(&st, id).await
                 });
             }
         });
-        chrome::group(ui, &t, "Aufgabe verwalten", |ui| {
+        chrome::group(ui, &t, "Manage Task", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::CHECK,
                 IC_GREEN,
-                "Als erledigt\nmarkieren",
+                "Mark\nComplete",
                 sel.as_ref().is_some_and(|x| !x.completed),
             )
             .clicked()
@@ -159,17 +159,17 @@ impl App {
                 self.save_task(x, None);
             }
         });
-        chrome::group(ui, &t, "Nachverfolgung", |ui| {
+        chrome::group(ui, &t, "Follow Up", |ui| {
             let today = super::today();
             let monday_next =
                 today + Duration::days(7 - today.weekday().num_days_from_monday() as i64);
             let friday = monday_next - Duration::days(3);
             let options: [(&str, Option<NaiveDate>); 5] = [
-                ("Heute", Some(today)),
-                ("Morgen", Some(today + Duration::days(1))),
-                ("Diese Woche", Some(friday.max(today))),
-                ("Nächste Woche", Some(monday_next)),
-                ("Kein Datum", None),
+                ("Today", Some(today)),
+                ("Tomorrow", Some(today + Duration::days(1))),
+                ("This Week", Some(friday.max(today))),
+                ("Next Week", Some(monday_next)),
+                ("No Date", None),
             ];
             chrome::column(ui, |ui| {
                 for (label, d) in &options[..3] {
@@ -194,12 +194,12 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Aktuelle Ansicht", |ui| {
+        chrome::group(ui, &t, "Current View", |ui| {
             chrome::column(ui, |ui| {
                 for (f, label) in [
-                    (TaskFilter::All, "Einfache Liste"),
-                    (TaskFilter::Active, "Aktiv"),
-                    (TaskFilter::Completed, "Erledigt"),
+                    (TaskFilter::All, "Simple List"),
+                    (TaskFilter::Active, "Active"),
+                    (TaskFilter::Completed, "Completed"),
                 ] {
                     let txt = if self.tasks.filter == f {
                         format!("{label}  \u{E182}")
@@ -213,8 +213,8 @@ impl App {
             });
             chrome::column(ui, |ui| {
                 for (f, label) in [
-                    (TaskFilter::Today, "Heute"),
-                    (TaskFilter::Overdue, "Überfällig"),
+                    (TaskFilter::Today, "Today"),
+                    (TaskFilter::Overdue, "Overdue"),
                 ] {
                     let txt = if self.tasks.filter == f {
                         format!("{label}  \u{E182}")
@@ -231,7 +231,7 @@ impl App {
 
     pub fn tasks_nav(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        ui.label(RichText::new(format!("{}  Meine Aufgaben", ph::CARET_DOWN)).strong());
+        ui.label(RichText::new(format!("{}  My Tasks", ph::CARET_DOWN)).strong());
         let mut lists: Vec<(i64, String)> = self
             .data
             .tasks
@@ -241,7 +241,7 @@ impl App {
         lists.sort();
         lists.dedup();
         let entries: Vec<(Option<(i64, String)>, String)> =
-            std::iter::once((None, "Aufgabenliste".to_string()))
+            std::iter::once((None, "To-Do List".to_string()))
                 .chain(lists.into_iter().map(|(a, n)| {
                     let acc = self
                         .data
@@ -296,7 +296,7 @@ impl App {
                         .list
                         .as_ref()
                         .map(|(_, n)| n.clone())
-                        .unwrap_or_else(|| "Aufgabenliste".into());
+                        .unwrap_or_else(|| "To-Do List".into());
                     ui.label(RichText::new(title).size(17.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.allocate_ui(egui::vec2(320.0, 26.0), |ui| {
@@ -304,25 +304,25 @@ impl App {
                                 ui,
                                 &t,
                                 &mut self.search,
-                                "Aufgaben durchsuchen (Strg+E)",
+                                "Search To-Do List (Ctrl+E)",
                             );
                         });
                     });
                 });
             });
 
-        // Columns as in Outlook's "Einfache Liste".
+        // Columns as in Outlook's "Simple List".
         let w = ui.available_width() - 12.0;
         let cols: [(&str, f32); 6] = [
             ("", 28.0),
             ("!", 22.0),
             (
-                "Aufgabenbetreff",
+                "Task Subject",
                 w - 28.0 - 22.0 - 110.0 - 150.0 - 140.0 - 34.0,
             ),
-            ("Fällig am", 110.0),
-            ("In Ordner", 150.0),
-            ("Kategorien", 140.0),
+            ("Due Date", 110.0),
+            ("In Folder", 150.0),
+            ("Categories", 140.0),
         ];
         let (head, _) = ui.allocate_exact_size(egui::vec2(w + 12.0, 24.0), Sense::hover());
         ui.painter().rect_filled(head, 0, t.ribbon);
@@ -360,7 +360,7 @@ impl App {
                     ui.add_space(62.0);
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut self.tasks.new_title)
-                            .hint_text("Klicken Sie hier, um eine neue Aufgabe zu erstellen")
+                            .hint_text("Click here to add a new Task")
                             .desired_width(w - 70.0)
                             .frame(false),
                     );
@@ -473,10 +473,10 @@ impl App {
                             format!(
                                 "{} {}",
                                 super::WEEKDAYS[d.weekday().num_days_from_monday() as usize],
-                                d.format("%d.%m.%Y")
+                                d.format("%d/%m/%Y")
                             )
                         })
-                        .unwrap_or_else(|| "Ohne".into());
+                        .unwrap_or_else(|| "None".into());
                     ui.painter().text(
                         egui::pos2(x + 6.0, cy),
                         egui::Align2::LEFT_CENTER,
@@ -533,9 +533,9 @@ impl App {
                             ph::CHECK,
                             IC_GREEN,
                             if task.completed {
-                                "Als nicht erledigt markieren"
+                                "Mark Not Complete"
                             } else {
-                                "Als erledigt markieren"
+                                "Mark Complete"
                             },
                         ) {
                             save.push(Task {
@@ -548,9 +548,9 @@ impl App {
                             "!",
                             IC_RED,
                             if task.important {
-                                "Wichtigkeit: normal"
+                                "Normal Importance"
                             } else {
-                                "Wichtigkeit: hoch"
+                                "High Importance"
                             },
                         ) {
                             save.push(Task {
@@ -558,7 +558,7 @@ impl App {
                                 ..task.clone()
                             });
                         }
-                        if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Öffnen") {
+                        if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Open") {
                             open = Some(task.clone());
                         }
                     });
@@ -567,7 +567,7 @@ impl App {
                     ui.add_space(20.0);
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            RichText::new("In dieser Ansicht gibt es keine Elemente.")
+                            RichText::new("There are no items to show in this view.")
                                 .color(t.text_weak),
                         )
                     });
@@ -589,9 +589,9 @@ impl App {
     ) -> bool {
         let th = self.t;
         let title = format!(
-            "{} - Aufgabe",
+            "{} - Task",
             if ed.t.title.trim().is_empty() {
-                "Unbenannt"
+                "Untitled"
             } else {
                 ed.t.title.trim()
             }
@@ -601,31 +601,31 @@ impl App {
         let mut save = false;
         let mut delete = false;
         let closed = chrome::native_window(ctx, vid, &title, [760.0, 540.0], &th, |ui| {
-            chrome::item_ribbon(ui, &th, "Aufgabe", |ui| {
-                chrome::group(ui, &th, "Aktionen", |ui| {
+            chrome::item_ribbon(ui, &th, "Task", |ui| {
+                chrome::group(ui, &th, "Actions", |ui| {
                     if chrome::large(
                         ui,
                         &th,
                         ph::FLOPPY_DISK,
                         IC_PURPLE,
-                        "Speichern &\nschließen",
+                        "Save &\nClose",
                         true,
                     )
                     .clicked()
                     {
                         save = true;
                     }
-                    if chrome::large(ui, &th, ph::X, IC_RED, "Löschen", !is_new).clicked() {
+                    if chrome::large(ui, &th, ph::X, IC_RED, "Delete", !is_new).clicked() {
                         delete = true;
                     }
                 });
-                chrome::group(ui, &th, "Aufgabe verwalten", |ui| {
+                chrome::group(ui, &th, "Manage Task", |ui| {
                     if chrome::large(
                         ui,
                         &th,
                         ph::CHECK,
                         IC_GREEN,
-                        "Als erledigt\nmarkieren",
+                        "Mark\nComplete",
                         !ed.t.completed,
                     )
                     .clicked()
@@ -634,7 +634,7 @@ impl App {
                         save = true;
                     }
                 });
-                chrome::group(ui, &th, "Kategorien", |ui| {
+                chrome::group(ui, &th, "Tags", |ui| {
                     chrome::column(ui, |ui| {
                         if chrome::small(
                             ui,
@@ -642,9 +642,9 @@ impl App {
                             "!",
                             IC_RED,
                             if ed.t.important {
-                                "Wichtigkeit: hoch  \u{E182}"
+                                "High Importance  \u{E182}"
                             } else {
-                                "Wichtigkeit: hoch"
+                                "High Importance"
                             },
                             true,
                         )
@@ -662,51 +662,51 @@ impl App {
                         .num_columns(2)
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
-                            ui.label("Betreff");
+                            ui.label("Subject");
                             ui.add(
                                 egui::TextEdit::singleline(&mut ed.t.title).desired_width(500.0),
                             );
                             ui.end_row();
-                            ui.label("Fällig am");
+                            ui.label("Due date");
                             ui.horizontal(|ui| {
                                 ui.checkbox(&mut ed.has_due, "");
                                 ui.add_enabled(
                                     ed.has_due,
                                     egui_extras::DatePickerButton::new(&mut ed.due)
                                         .id_salt("task_due")
-                                        .format("%d.%m.%Y"),
+                                        .format("%d/%m/%Y"),
                                 );
                                 if !ed.has_due {
-                                    ui.label(RichText::new("Ohne").color(th.text_weak));
+                                    ui.label(RichText::new("None").color(th.text_weak));
                                 }
                             });
                             ui.end_row();
                             ui.label("Status");
                             egui::ComboBox::from_id_salt("task_status")
                                 .selected_text(if ed.t.completed {
-                                    "Erledigt"
+                                    "Completed"
                                 } else {
-                                    "Nicht begonnen"
+                                    "Not Started"
                                 })
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(
                                         &mut ed.t.completed,
                                         false,
-                                        "Nicht begonnen",
+                                        "Not Started",
                                     );
-                                    ui.selectable_value(&mut ed.t.completed, true, "Erledigt");
+                                    ui.selectable_value(&mut ed.t.completed, true, "Completed");
                                 });
                             ui.end_row();
-                            ui.label("Priorität");
+                            ui.label("Priority");
                             egui::ComboBox::from_id_salt("task_prio")
-                                .selected_text(if ed.t.important { "Hoch" } else { "Normal" })
+                                .selected_text(if ed.t.important { "High" } else { "Normal" })
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(&mut ed.t.important, false, "Normal");
-                                    ui.selectable_value(&mut ed.t.important, true, "Hoch");
+                                    ui.selectable_value(&mut ed.t.important, true, "High");
                                 });
                             ui.end_row();
                             if is_new {
-                                ui.label("Speichern in");
+                                ui.label("Save in");
                                 egui::ComboBox::from_id_salt("task_acc")
                                     .selected_text(
                                         accounts
@@ -744,7 +744,7 @@ impl App {
         });
         if save {
             if ed.t.title.trim().is_empty() {
-                self.toast("Bitte einen Betreff eingeben.", true);
+                self.toast("Please enter a subject.", true);
                 return false;
             }
             let mut task = ed.t.clone();
@@ -753,12 +753,12 @@ impl App {
             } else {
                 String::new()
             };
-            self.save_task(task, Some("Aufgabe gespeichert."));
+            self.save_task(task, Some("Task saved."));
             return true;
         }
         if delete {
             let id = ed.t.id;
-            self.spawn(Some("Aufgabe gelöscht."), move |st, _| async move {
+            self.spawn(Some("Task deleted."), move |st, _| async move {
                 providers::delete_task(&st, id).await
             });
             return true;

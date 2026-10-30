@@ -1,6 +1,6 @@
-//! To-Do-Leiste: calendar peek with upcoming appointments, favourite
-//! people and open tasks at the right of the mail module (Ansicht >
-//! To-Do-Leiste).
+//! To-Do Bar: calendar peek with upcoming appointments, favourite
+//! people and open tasks at the right of the mail module (View >
+//! To-Do Bar).
 
 use chrono::{Datelike, Duration, NaiveDate};
 use eframe::egui::{self, RichText, Sense};
@@ -33,7 +33,7 @@ impl App {
                     ui.separator();
                 }
                 if self.prefs.todo_people {
-                    ui.label(RichText::new("Personen").size(15.0));
+                    ui.label(RichText::new("People").size(15.0));
                     let favorites: Vec<Contact> = self
                         .data
                         .contacts
@@ -44,7 +44,7 @@ impl App {
                     if favorites.is_empty() {
                         ui.label(
                             RichText::new(
-                                "Markieren Sie Kontakte als Favoriten, damit sie hier erscheinen.",
+                                "Add contacts to Favorites to see them here.",
                             )
                             .size(12.0)
                             .color(t.text_weak),
@@ -72,7 +72,7 @@ impl App {
                             t.text,
                         );
                         if resp
-                            .on_hover_text(format!("E-Mail an {}", c.email))
+                            .on_hover_text(format!("Email {}", c.email))
                             .clicked()
                         {
                             self.open_composer(ComposeKind::To(format!(
@@ -190,7 +190,7 @@ impl App {
         let events = db::list_events(&self.st.db(), &from, &to).unwrap_or_default();
         if events.is_empty() {
             ui.label(
-                RichText::new("Keine bevorstehenden Termine.")
+                RichText::new("No upcoming appointments.")
                     .size(12.0)
                     .color(t.text_weak),
             );
@@ -201,12 +201,12 @@ impl App {
             let day = local(&e.start).date();
             if last != Some(day) {
                 let label = match (day - today).num_days() {
-                    0 => "HEUTE".to_string(),
-                    1 => "MORGEN".to_string(),
+                    0 => "TODAY".to_string(),
+                    1 => "TOMORROW".to_string(),
                     _ => format!(
                         "{} {}",
                         WEEKDAYS_LONG[day.weekday().num_days_from_monday() as usize].to_uppercase(),
-                        day.format("%d.%m.")
+                        day.format("%d/%m")
                     ),
                 };
                 ui.label(RichText::new(label).size(11.0).color(t.text_weak));
@@ -228,7 +228,7 @@ impl App {
                 color,
             );
             let time = if e.all_day {
-                "Ganztägig".to_string()
+                "All day".to_string()
             } else {
                 format!(
                     "{} - {}",
@@ -270,10 +270,10 @@ impl App {
 
     fn todo_tasks(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        ui.label(RichText::new("Aufgaben").size(15.0));
+        ui.label(RichText::new("Tasks").size(15.0));
         let r = ui.add(
             egui::TextEdit::singleline(&mut self.todo.new_task)
-                .hint_text("Neue Aufgabe eingeben")
+                .hint_text("Type a new task")
                 .desired_width(f32::INFINITY),
         );
         if r.lost_focus()
@@ -302,7 +302,7 @@ impl App {
         open.sort_by(|a, b| (a.due.is_empty(), &a.due).cmp(&(b.due.is_empty(), &b.due)));
         if open.is_empty() {
             ui.label(
-                RichText::new("Hier gibt es keine Elemente.")
+                RichText::new("There are no items to show in this view.")
                     .size(12.0)
                     .color(t.text_weak),
             );
@@ -313,7 +313,7 @@ impl App {
                 let mut c = false;
                 if ui
                     .checkbox(&mut c, "")
-                    .on_hover_text("Als erledigt markieren")
+                    .on_hover_text("Mark Complete")
                     .changed()
                 {
                     done = Some(task.clone());
@@ -323,7 +323,7 @@ impl App {
                     if let Ok(d) = NaiveDate::parse_from_str(&task.due, "%Y-%m-%d") {
                         let overdue = d < super::today();
                         ui.label(
-                            RichText::new(format!("Fällig: {}", d.format("%d.%m.%Y")))
+                            RichText::new(format!("Due: {}", d.format("%d/%m/%Y")))
                                 .size(11.0)
                                 .color(if overdue { t.danger } else { t.text_weak }),
                         );

@@ -1,5 +1,5 @@
-//! Terminplanungs-Assistent: free/busy grid of the organizer and the
-//! attendees in the meeting window, with AutoAuswahl of the next free slot.
+//! Scheduling Assistant: free/busy grid of the organizer and the
+//! attendees in the meeting window, with AutoPick of the next free slot.
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use eframe::egui::{self, Color32, RichText, Sense};
@@ -178,7 +178,7 @@ impl App {
                 format!(
                     "{}, {}",
                     super::WEEKDAYS_LONG[day.weekday().num_days_from_monday() as usize],
-                    day.format("%d. %m. %Y")
+                    day.format("%d/%m/%Y")
                 ),
                 egui::FontId::proportional(12.5),
                 t.text,
@@ -212,7 +212,7 @@ impl App {
             for (i, name) in names.iter().enumerate() {
                 let r = row_rect(i + 1);
                 let label = if i == 0 {
-                    format!("{name} (Organisator)")
+                    format!("{name} (Organizer)")
                 } else {
                     name.clone()
                 };
@@ -225,7 +225,7 @@ impl App {
                 match &known[i] {
                     None => {
                         unknown = true;
-                        // "Keine Informationen": hatched grey.
+                        // "No Information": hatched grey.
                         let area = egui::Rect::from_x_y_ranges(x0..=r.right(), r.y_range()).shrink2(egui::vec2(0.0, 4.0));
                         let mut x = area.left();
                         while x < area.right() {
@@ -254,12 +254,12 @@ impl App {
                     }
                 }
             }
-            // "Alle Teilnehmer": combined busy times.
+            // "All Attendees": combined busy times.
             let r = row_rect(0);
             p_.text(
                 egui::pos2(r.left() + 6.0, r.center().y),
                 egui::Align2::LEFT_CENTER,
-                "Alle Teilnehmer",
+                "All Attendees",
                 super::chrome::bold_font(12.5),
                 t.text,
             );
@@ -305,12 +305,12 @@ impl App {
                 }
             }
             if p.data.is_none() {
-                ui.label(RichText::new("Frei/Gebucht-Informationen werden abgerufen …").size(12.0).color(t.text_weak));
+                ui.label(RichText::new("Retrieving free/busy information…").size(12.0).color(t.text_weak));
             } else if let Some(Err(e)) = &p.data {
-                ui.label(RichText::new(format!("Frei/Gebucht-Informationen nicht verfügbar: {e}")).size(12.0).color(t.danger));
+                ui.label(RichText::new(format!("Free/busy information not available: {e}")).size(12.0).color(t.danger));
             } else if unknown {
                 ui.label(
-                    RichText::new("Für einige Teilnehmer sind keine Frei/Gebucht-Informationen verfügbar (nur innerhalb von Microsoft 365).")
+                    RichText::new("Free/busy information is not available for some attendees (only within Microsoft 365).")
                         .size(12.0)
                         .color(t.text_weak),
                 );
@@ -320,12 +320,12 @@ impl App {
         ui.horizontal(|ui| {
             ui.add_sized(
                 [NAME_W - 10.0, 24.0],
-                egui::Label::new("Teilnehmer hinzufügen:"),
+                egui::Label::new("Add Attendees:"),
             );
             let contacts = self.data.contacts.clone();
             let groups = self.data.groups.clone();
             super::compose::address_field(ui, "planner_add", &mut p.add, &contacts, &groups, 300.0);
-            if ui.button("Hinzufügen").clicked() && !p.add.trim().is_empty() {
+            if ui.button("Add").clicked() && !p.add.trim().is_empty() {
                 let add = super::compose::expand_groups(&p.add, &groups);
                 let sep = if m.attendees.trim().is_empty() {
                     ""
@@ -340,20 +340,20 @@ impl App {
         ui.horizontal(|ui| {
             ui.add_sized(
                 [NAME_W - 10.0, 24.0],
-                egui::Label::new("Besprechungsbeginn:"),
+                egui::Label::new("Start time:"),
             );
             ui.add(
                 egui_extras::DatePickerButton::new(m.start_date)
                     .id_salt("pl_sd")
-                    .format("%d.%m.%Y"),
+                    .format("%d/%m/%Y"),
             );
             super::calendar::time_combo(ui, "pl_st", m.start_time);
             ui.add_space(16.0);
-            ui.label("Besprechungsende:");
+            ui.label("End time:");
             ui.add(
                 egui_extras::DatePickerButton::new(m.end_date)
                     .id_salt("pl_ed")
-                    .format("%d.%m.%Y"),
+                    .format("%d/%m/%Y"),
             );
             super::calendar::time_combo(ui, "pl_et", m.end_time);
         });
@@ -372,14 +372,14 @@ impl App {
             let mut pick = None;
             if ui
                 .button("<<")
-                .on_hover_text("Vorheriger freier Zeitraum")
+                .on_hover_text("Previous free time slot")
                 .clicked()
             {
                 pick = Some(false);
             }
             if ui
-                .button("AutoAuswahl >>")
-                .on_hover_text("Nächster Zeitraum, in dem alle Teilnehmer frei sind")
+                .button("AutoPick >>")
+                .on_hover_text("Next time slot when all attendees are free")
                 .clicked()
             {
                 pick = Some(true);
@@ -387,16 +387,16 @@ impl App {
             if let Some(forward) = pick {
                 match auto_pick(&busy, start, dur, work, forward, Duration::days(DAYS - 1)) {
                     Some(s) => set_times(&mut m, s, s + dur),
-                    None => self.toast("Kein freier Zeitraum für alle Teilnehmer gefunden.", true),
+                    None => self.toast("No free time slot found for all attendees.", true),
                 }
             }
             ui.add_space(16.0);
             for (label, c, hatched) in [
-                ("Gebucht", busy_color("busy"), false),
-                ("Mit Vorbehalt", busy_color("tentative"), false),
-                ("Abwesend", busy_color("oof"), false),
-                ("Woanders tätig", busy_color("workingElsewhere"), false),
-                ("Keine Informationen", t.text_weak.gamma_multiply(0.5), true),
+                ("Busy", busy_color("busy"), false),
+                ("Tentative", busy_color("tentative"), false),
+                ("Out of Office", busy_color("oof"), false),
+                ("Working Elsewhere", busy_color("workingElsewhere"), false),
+                ("No Information", t.text_weak.gamma_multiply(0.5), true),
             ] {
                 let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), Sense::hover());
                 if hatched {
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn auto_pick_skips_busy_times_evenings_and_weekends() {
-        // Monday 2.11.2026; busy 9:00-10:30 and 11:00-17:00.
+        // Monday 2/11/2026; busy 9:00-10:30 and 11:00-17:00.
         let busy = vec![(dt(2, 9, 0), dt(2, 10, 30)), (dt(2, 11, 0), dt(2, 17, 0))];
         let hour = Duration::hours(1);
         let lim = Duration::days(10);

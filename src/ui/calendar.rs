@@ -1,5 +1,5 @@
 //! Calendar module: date navigator, day / work week / week / month views
-//! and the appointment window ("Termin").
+//! and the appointment window ("Appointment").
 
 use std::collections::HashSet;
 
@@ -45,10 +45,10 @@ pub struct EventEditor {
     start_time: NaiveTime,
     end_date: NaiveDate,
     end_time: NaiveTime,
-    /// Series pattern being edited ("Serie" dialog).
+    /// Series pattern being edited ("Recurrence" dialog).
     rec: Option<Recurrence>,
     show_series: bool,
-    /// Some = Terminplanungs-Assistent shown instead of the form.
+    /// Some = Scheduling Assistant shown instead of the form.
     pub(super) planner: Option<super::scheduling::Planner>,
 }
 
@@ -147,7 +147,7 @@ impl App {
         self.new_event_at(start, false, false);
     }
 
-    /// "Besprechung" from a message: attendees and text taken over.
+    /// "Meeting" from a message: attendees and text taken over.
     pub fn new_meeting(&mut self, title: &str, attendees: &str, body: &str) {
         let h = (chrono::Local::now().hour() + 1).min(23);
         self.new_event_at(super::today().and_hms_opt(h, 0, 0).unwrap(), false, true);
@@ -183,7 +183,7 @@ impl App {
     }
 
     pub(super) fn edit_event(&mut self, e: &Event) {
-        // An occurrence of a local series opens the whole series, like Outlook's "Serie öffnen".
+        // An occurrence of a local series opens the whole series, like Outlook's "Open the series".
         let master = (!e.recurrence.is_empty())
             .then(|| db::get_event(&self.st.db(), e.id).ok().flatten())
             .flatten();
@@ -217,11 +217,11 @@ impl App {
         }
         let t = self.t;
         let mut reload = false;
-        chrome::group(ui, &t, "Neu", |ui| {
-            if chrome::large(ui, &t, ph::CALENDAR_PLUS, IC_BLUE, "Neuer\nTermin", true).clicked() {
+        chrome::group(ui, &t, "New", |ui| {
+            if chrome::large(ui, &t, ph::CALENDAR_PLUS, IC_BLUE, "New\nAppointment", true).clicked() {
                 self.new_event_now();
             }
-            if chrome::large(ui, &t, ph::USERS_THREE, IC_BLUE, "Neue\nBesprechung", true).clicked()
+            if chrome::large(ui, &t, ph::USERS_THREE, IC_BLUE, "New\nMeeting", true).clicked()
             {
                 let h = (chrono::Local::now().hour() + 1).min(23);
                 self.new_event_at(self.cal.date.and_hms_opt(h, 0, 0).unwrap(), false, true);
@@ -231,26 +231,26 @@ impl App {
                 &t,
                 ph::FILE_PLUS,
                 chrome::IC_YELLOW,
-                "Neue\nElemente \u{E136}",
+                "New\nItems \u{E136}",
                 true,
             );
             chrome::menu(&r, |ui| {
-                if chrome::menu_item(ui, ph::ENVELOPE_SIMPLE, IC_BLUE, "E-Mail-Nachricht") {
+                if chrome::menu_item(ui, ph::ENVELOPE_SIMPLE, IC_BLUE, "E-mail Message") {
                     self.open_composer(super::compose::ComposeKind::New);
                 }
-                if chrome::menu_item(ui, ph::CALENDAR_BLANK, IC_BLUE, "Ganztägiges Ereignis") {
+                if chrome::menu_item(ui, ph::CALENDAR_BLANK, IC_BLUE, "All Day Event") {
                     self.new_event_at(self.cal.date.and_hms_opt(0, 0, 0).unwrap(), true, false);
                 }
-                if chrome::menu_item(ui, ph::USER, IC_BLUE, "Kontakt") {
+                if chrome::menu_item(ui, ph::USER, IC_BLUE, "Contact") {
                     self.new_contact();
                 }
-                if chrome::menu_item(ui, ph::CHECK_SQUARE_OFFSET, IC_GREEN, "Aufgabe") {
+                if chrome::menu_item(ui, ph::CHECK_SQUARE_OFFSET, IC_GREEN, "Task") {
                     self.new_task();
                 }
             });
         });
-        chrome::group(ui, &t, "Gehe zu", |ui| {
-            if chrome::large(ui, &t, ph::CALENDAR_CHECK, IC_BLUE, "Heute", true).clicked() {
+        chrome::group(ui, &t, "Go To", |ui| {
+            if chrome::large(ui, &t, ph::CALENDAR_CHECK, IC_BLUE, "Today", true).clicked() {
                 self.cal.date = super::today();
                 self.cal.nav_month = self.cal.date;
                 if self.cal.view == CalView::Month {
@@ -258,19 +258,19 @@ impl App {
                 }
                 reload = true;
             }
-            if chrome::large(ui, &t, ph::CALENDAR_DOTS, IC_BLUE, "Nächste\n7 Tage", true).clicked()
+            if chrome::large(ui, &t, ph::CALENDAR_DOTS, IC_BLUE, "Next 7\nDays", true).clicked()
             {
                 self.cal.date = super::today();
                 self.cal.view = CalView::Week;
                 reload = true;
             }
         });
-        chrome::group(ui, &t, "Anordnen", |ui| {
+        chrome::group(ui, &t, "Arrange", |ui| {
             for (v, icon, label) in [
-                (CalView::Day, ph::SQUARE, "Tag"),
-                (CalView::WorkWeek, ph::COLUMNS, "Arbeits-\nwoche"),
-                (CalView::Week, ph::SQUARES_FOUR, "Woche"),
-                (CalView::Month, ph::CALENDAR_BLANK, "Monat"),
+                (CalView::Day, ph::SQUARE, "Day"),
+                (CalView::WorkWeek, ph::COLUMNS, "Work\nWeek"),
+                (CalView::Week, ph::SQUARES_FOUR, "Week"),
+                (CalView::Month, ph::CALENDAR_BLANK, "Month"),
             ] {
                 let selected = self.cal.view == v;
                 let r = chrome::large(
@@ -314,15 +314,15 @@ impl App {
                     ui.add_space(8.0);
                 }
                 ui.add_space(6.0);
-                ui.label(RichText::new(format!("{}  Meine Kalender", ph::CARET_DOWN)).strong());
+                ui.label(RichText::new(format!("{}  My Calendars", ph::CARET_DOWN)).strong());
                 for a in self.data.accounts.clone() {
                     let mut on = !self.cal.hidden.contains(&a.id);
                     let name = match a.kind {
-                        AccountKind::Local => "Kalender".to_string(),
+                        AccountKind::Local => "Calendar".to_string(),
                         AccountKind::Imap => {
-                            format!("Kalender (Nur dieser Computer) – {}", a.email)
+                            format!("Calendar (This computer only) – {}", a.email)
                         }
-                        AccountKind::Graph => format!("Kalender – {}", a.email),
+                        AccountKind::Graph => format!("Calendar – {}", a.email),
                     };
                     ui.horizontal(|ui| {
                         ui.add_space(14.0);
@@ -488,7 +488,7 @@ impl App {
                     let (a, b) = self.cal.range();
                     let title = match self.cal.view {
                         CalView::Day => {
-                            format!("{}. {} {}", a.day(), MONTHS[a.month0() as usize], a.year())
+                            format!("{} {} {}", a.day(), MONTHS[a.month0() as usize], a.year())
                         }
                         CalView::Month => format!(
                             "{} {}",
@@ -496,14 +496,14 @@ impl App {
                             self.cal.date.year()
                         ),
                         _ if a.month() == b.month() => format!(
-                            "{}. - {}. {} {}",
+                            "{} - {} {} {}",
                             a.day(),
                             b.day(),
                             MONTHS[a.month0() as usize],
                             a.year()
                         ),
                         _ => format!(
-                            "{}. {} - {}. {} {}",
+                            "{} {} - {} {} {}",
                             a.day(),
                             MONTHS[a.month0() as usize],
                             b.day(),
@@ -795,7 +795,7 @@ impl App {
             }
             p.rect_stroke(cell, 0, stroke, egui::StrokeKind::Inside);
             let num = if day.day() == 1 {
-                format!("{}. {}", day.day(), &MONTHS[day.month0() as usize][..3])
+                format!("{} {}", day.day(), &MONTHS[day.month0() as usize][..3])
             } else {
                 day.day().to_string()
             };
@@ -854,7 +854,7 @@ impl App {
                         egui::vec2(w - 6.0, 17.0),
                     ),
                     egui::Button::new(
-                        RichText::new(format!("{} weitere …", evs.len() - shown)).size(11.5),
+                        RichText::new(format!("{} more…", evs.len() - shown)).size(11.5),
                     )
                     .frame(false),
                 );
@@ -885,11 +885,11 @@ impl App {
         ed: &mut EventEditor,
     ) -> bool {
         let t = self.t;
-        let kind = if ed.meeting { "Besprechung" } else { "Termin" };
+        let kind = if ed.meeting { "Meeting" } else { "Appointment" };
         let title = format!(
             "{} - {kind}",
             if ed.ev.title.trim().is_empty() {
-                "Unbenannt"
+                "Untitled"
             } else {
                 ed.ev.title.trim()
             }
@@ -904,41 +904,41 @@ impl App {
         let closed = chrome::native_window(ctx, vid, &title, [820.0, 640.0], &t, |ui| {
             chrome::item_ribbon(ui, &t, kind, |ui| {
                 if invited {
-                    chrome::group(ui, &t, "Antworten", |ui| {
-                        if chrome::large(ui, &t, ph::CHECK, IC_GREEN, "Annehmen", true).clicked() {
+                    chrome::group(ui, &t, "Respond", |ui| {
+                        if chrome::large(ui, &t, ph::CHECK, IC_GREEN, "Accept", true).clicked() {
                             answer = Some("accept");
                         }
-                        if chrome::large(ui, &t, ph::QUESTION, IC_PURPLE, "Mit\nVorbehalt", true)
+                        if chrome::large(ui, &t, ph::QUESTION, IC_PURPLE, "Tentative", true)
                             .clicked()
                         {
                             answer = Some("tentativelyAccept");
                         }
-                        if chrome::large(ui, &t, ph::X_CIRCLE, IC_RED, "Ablehnen", true).clicked() {
+                        if chrome::large(ui, &t, ph::X_CIRCLE, IC_RED, "Decline", true).clicked() {
                             answer = Some("decline");
                         }
                     });
                 }
-                chrome::group(ui, &t, "Aktionen", |ui| {
+                chrome::group(ui, &t, "Actions", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::FLOPPY_DISK,
                         IC_PURPLE,
-                        "Speichern &\nschließen",
+                        "Save &\nClose",
                         true,
                     )
                     .clicked()
                     {
                         save = true;
                     }
-                    if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", !is_new).clicked() {
+                    if chrome::large(ui, &t, ph::X, IC_RED, "Delete", !is_new).clicked() {
                         delete = true;
                     }
                 });
-                chrome::group(ui, &t, "Anzeigen", |ui| {
+                chrome::group(ui, &t, "Show", |ui| {
                     for (planner, icon, label) in [
-                        (false, ph::CALENDAR_PLUS, "Termin"),
-                        (true, ph::GRID_FOUR, "Terminplanungs-\nAssistent"),
+                        (false, ph::CALENDAR_PLUS, "Appointment"),
+                        (true, ph::GRID_FOUR, "Scheduling\nAssistant"),
                     ] {
                         let r = chrome::large(ui, &t, icon, IC_BLUE, label, !ed.ev.all_day);
                         if ed.planner.is_some() == planner {
@@ -954,16 +954,16 @@ impl App {
                         }
                     }
                 });
-                chrome::group(ui, &t, "Teilnehmer", |ui| {
+                chrome::group(ui, &t, "Attendees", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::USERS_THREE,
                         IC_BLUE,
                         if ed.meeting {
-                            "Einladung\nabbrechen"
+                            "Cancel\nInvitation"
                         } else {
-                            "Teilnehmer\neinladen"
+                            "Invite\nAttendees"
                         },
                         true,
                     )
@@ -972,11 +972,11 @@ impl App {
                         invite = true;
                     }
                 });
-                chrome::group(ui, &t, "Serie", |ui| {
+                chrome::group(ui, &t, "Recurrence", |ui| {
                     let label = if ed.rec.is_some() {
-                        "Serie \u{E182}"
+                        "Recurrence \u{E182}"
                     } else {
-                        "Serie"
+                        "Recurrence"
                     };
                     if chrome::large(ui, &t, ph::REPEAT, IC_BLUE, label, true).clicked() {
                         ed.show_series = !ed.show_series;
@@ -991,11 +991,11 @@ impl App {
                         }
                     }
                 });
-                chrome::group(ui, &t, "Optionen", |ui| {
+                chrome::group(ui, &t, "Options", |ui| {
                     chrome::column(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(format!("{}  Anzeigen als:", ph::CLOCK)).size(12.0),
+                                RichText::new(format!("{}  Show As:", ph::CLOCK)).size(12.0),
                             );
                             egui::ComboBox::from_id_salt("ev_show")
                                 .width(110.0)
@@ -1012,7 +1012,7 @@ impl App {
                         });
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(format!("{}  Erinnerung:", ph::BELL)).size(12.0),
+                                RichText::new(format!("{}  Reminder:", ph::BELL)).size(12.0),
                             );
                             egui::ComboBox::from_id_salt("ev_rem")
                                 .width(118.0)
@@ -1029,18 +1029,18 @@ impl App {
                         });
                     });
                 });
-                chrome::group(ui, &t, "Kategorien", |ui| {
+                chrome::group(ui, &t, "Tags", |ui| {
                     let r = chrome::large(
                         ui,
                         &t,
                         ph::TAG,
                         IC_PURPLE,
-                        "Kategori-\nsieren \u{E136}",
+                        "Categorize\n\u{E136}",
                         true,
                     );
                     chrome::menu(&r, |ui| {
                         if ui
-                            .radio(ed.ev.category.is_empty(), "Keine Kategorie")
+                            .radio(ed.ev.category.is_empty(), "No Category")
                             .clicked()
                         {
                             ed.ev.category.clear();
@@ -1101,43 +1101,43 @@ impl App {
                             });
                         };
                     if ed.meeting {
-                        row(ui, "Erforderlich", &mut |ui| {
+                        row(ui, "Required", &mut |ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut ed.ev.attendees)
-                                    .hint_text("E-Mail-Adressen, mit ; getrennt")
+                                    .hint_text("Email addresses, separated by ;")
                                     .desired_width(ui.available_width() - 4.0),
                             );
                         });
                     }
-                    row(ui, "Betreff", &mut |ui| {
+                    row(ui, "Subject", &mut |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut ed.ev.title)
                                 .desired_width(ui.available_width() - 4.0),
                         );
                     });
-                    row(ui, "Ort", &mut |ui| {
+                    row(ui, "Location", &mut |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut ed.ev.location)
                                 .desired_width(ui.available_width() - 4.0),
                         );
                     });
                     ui.add_space(4.0);
-                    row(ui, "Beginnt um", &mut |ui| {
+                    row(ui, "Start time", &mut |ui| {
                         ui.add(
                             egui_extras::DatePickerButton::new(&mut ed.start_date)
                                 .id_salt("ev_sd")
-                                .format("%d.%m.%Y"),
+                                .format("%d/%m/%Y"),
                         );
                         if !ed.ev.all_day {
                             time_combo(ui, "ev_st", &mut ed.start_time);
                         }
-                        ui.checkbox(&mut ed.ev.all_day, "Ganztägiges Ereignis");
+                        ui.checkbox(&mut ed.ev.all_day, "All day event");
                     });
-                    row(ui, "Endet um", &mut |ui| {
+                    row(ui, "End time", &mut |ui| {
                         ui.add(
                             egui_extras::DatePickerButton::new(&mut ed.end_date)
                                 .id_salt("ev_ed")
-                                .format("%d.%m.%Y"),
+                                .format("%d/%m/%Y"),
                         );
                         if !ed.ev.all_day {
                             time_combo(ui, "ev_et", &mut ed.end_time);
@@ -1145,7 +1145,7 @@ impl App {
                     });
                     if let Some(r) = &ed.rec {
                         if !ed.show_series {
-                            row(ui, "Serie", &mut |ui| {
+                            row(ui, "Recurrence", &mut |ui| {
                                 ui.label(RichText::new(format!("{}  {}", ph::REPEAT, r.describe())).color(t.text_weak));
                             });
                         }
@@ -1154,20 +1154,20 @@ impl App {
                         series_editor(ui, &t, ed);
                     }
                     if invited {
-                        let who = if ed.ev.organizer.is_empty() { "Der Organisator".to_string() } else { ed.ev.organizer.clone() };
+                        let who = if ed.ev.organizer.is_empty() { "The organizer".to_string() } else { ed.ev.organizer.clone() };
                         let state = match ed.ev.response.as_str() {
-                            "accepted" => "Sie haben zugesagt.",
-                            "tentativelyAccepted" => "Sie haben mit Vorbehalt zugesagt.",
-                            "declined" => "Sie haben abgesagt.",
-                            _ => "Bitte antworten Sie.",
+                            "accepted" => "You accepted.",
+                            "tentativelyAccepted" => "You tentatively accepted.",
+                            "declined" => "You declined.",
+                            _ => "Please respond.",
                         };
                         egui::Frame::new().fill(t.pane_alt).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
                             ui.set_width(ui.available_width());
-                            ui.label(RichText::new(format!("{}  {who} hat Sie zu dieser Besprechung eingeladen. {state}", ph::INFO)).size(12.0));
+                            ui.label(RichText::new(format!("{}  {who} invited you to this meeting. {state}", ph::INFO)).size(12.0));
                         });
                     }
                     if is_new {
-                        row(ui, "Kalender", &mut |ui| {
+                        row(ui, "Calendar", &mut |ui| {
                             egui::ComboBox::from_id_salt("ev_acc")
                                 .selected_text(
                                     accounts
@@ -1201,9 +1201,9 @@ impl App {
         if let Some(a) = answer {
             let id = ed.ev.id;
             let msg = match a {
-                "accept" => "Zusage gesendet.",
-                "decline" => "Absage gesendet.",
-                _ => "Zusage mit Vorbehalt gesendet.",
+                "accept" => "Acceptance sent.",
+                "decline" => "Decline sent.",
+                _ => "Tentative acceptance sent.",
             };
             self.spawn(Some(msg), move |st, _| async move {
                 providers::respond_event(&st, id, a).await
@@ -1214,7 +1214,7 @@ impl App {
             let mut e = ed.ev.clone();
             e.recurrence = ed.rec.as_ref().map(|r| r.format()).unwrap_or_default();
             if e.title.trim().is_empty() {
-                e.title = "(Kein Betreff)".into();
+                e.title = "(No subject)".into();
             }
             let (s, en) = if e.all_day {
                 (
@@ -1230,19 +1230,19 @@ impl App {
                 )
             };
             if en < s {
-                self.toast("Das eingegebene Enddatum liegt vor dem Anfangsdatum.", true);
+                self.toast("The end date you entered occurs before the start date.", true);
                 return false;
             }
             e.start = super::local_to_utc_string(s);
             e.end = super::local_to_utc_string(en);
-            self.spawn(Some("Element gespeichert."), move |st, _| async move {
+            self.spawn(Some("Item saved."), move |st, _| async move {
                 providers::save_event(&st, e).await.map(|_| ())
             });
             return true;
         }
         if delete {
             let id = ed.ev.id;
-            self.spawn(Some("Element gelöscht."), move |st, _| async move {
+            self.spawn(Some("Item deleted."), move |st, _| async move {
                 providers::delete_event(&st, id).await
             });
             return true;
@@ -1251,20 +1251,20 @@ impl App {
     }
 }
 
-/// Outlook's "Terminserie" settings, shown inline in the appointment window.
+/// Outlook's "Appointment Recurrence" settings, shown inline in the appointment window.
 fn series_editor(ui: &mut egui::Ui, t: &super::theme::Theme, ed: &mut EventEditor) {
     let start = ed.start_date;
     let mut remove = false;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new("Serienmuster").strong());
+        ui.label(RichText::new("Recurrence pattern").strong());
         let Some(r) = &mut ed.rec else { return };
         ui.horizontal(|ui| {
             for (f, label) in [
-                (Freq::Daily, "Täglich"),
-                (Freq::Weekly, "Wöchentlich"),
-                (Freq::Monthly, "Monatlich"),
-                (Freq::Yearly, "Jährlich"),
+                (Freq::Daily, "Daily"),
+                (Freq::Weekly, "Weekly"),
+                (Freq::Monthly, "Monthly"),
+                (Freq::Yearly, "Yearly"),
             ] {
                 if ui.radio(r.freq == f, label).clicked() {
                     r.freq = f;
@@ -1273,16 +1273,16 @@ fn series_editor(ui: &mut egui::Ui, t: &super::theme::Theme, ed: &mut EventEdito
         });
         ui.horizontal(|ui| {
             let unit = match r.freq {
-                Freq::Daily => "Tag(e)".to_string(),
-                Freq::Weekly => "Woche(n) am:".to_string(),
-                Freq::Monthly => format!("Monat(e) am {}.", start.day()),
+                Freq::Daily => "day(s)".to_string(),
+                Freq::Weekly => "week(s) on:".to_string(),
+                Freq::Monthly => format!("month(s) on day {}", start.day()),
                 Freq::Yearly => format!(
-                    "Jahr(e) am {}. {}",
+                    "year(s) on {} {}",
                     start.day(),
                     MONTHS[start.month0() as usize]
                 ),
             };
-            ui.label("Jede(n)");
+            ui.label("Recur every");
             ui.add(egui::DragValue::new(&mut r.interval).range(1..=99));
             ui.label(unit);
         });
@@ -1300,24 +1300,24 @@ fn series_editor(ui: &mut egui::Ui, t: &super::theme::Theme, ed: &mut EventEdito
             }
         }
         ui.add_space(4.0);
-        ui.label(RichText::new("Seriendauer").strong());
+        ui.label(RichText::new("Range of recurrence").strong());
         ui.horizontal(|ui| {
-            if ui.radio(r.until.is_none(), "Kein Enddatum").clicked() {
+            if ui.radio(r.until.is_none(), "No end date").clicked() {
                 r.until = None;
             }
-            if ui.radio(r.until.is_some(), "Endet am:").clicked() && r.until.is_none() {
+            if ui.radio(r.until.is_some(), "End by:").clicked() && r.until.is_none() {
                 r.until = Some(start + Duration::days(90));
             }
             if let Some(u) = &mut r.until {
                 ui.add(
                     egui_extras::DatePickerButton::new(u)
                         .id_salt("rec_until")
-                        .format("%d.%m.%Y"),
+                        .format("%d/%m/%Y"),
                 );
             }
         });
         ui.label(RichText::new(r.describe()).color(t.text_weak));
-        if ui.button(format!("{}  Serie entfernen", ph::X)).clicked() {
+        if ui.button(format!("{}  Remove Recurrence", ph::X)).clicked() {
             remove = true;
         }
     });
@@ -1394,8 +1394,8 @@ fn paint_event(
     resp.on_hover_text(format!(
         "{}\n{} – {}{}",
         e.title,
-        local(&e.start).format("%d.%m. %H:%M"),
-        local(&e.end).format("%d.%m. %H:%M"),
+        local(&e.start).format("%d/%m %H:%M"),
+        local(&e.end).format("%d/%m %H:%M"),
         if e.location.is_empty() {
             String::new()
         } else {
@@ -1437,21 +1437,21 @@ pub(super) fn time_combo(ui: &mut egui::Ui, id: &str, t: &mut NaiveTime) {
 
 fn show_as_label(s: &str) -> &'static str {
     match s {
-        "free" => "Frei",
-        "tentative" => "Mit Vorbehalt",
-        "oof" => "Abwesend",
-        _ => "Gebucht",
+        "free" => "Free",
+        "tentative" => "Tentative",
+        "oof" => "Out of Office",
+        _ => "Busy",
     }
 }
 
 pub(super) fn reminder_label(m: i64) -> String {
     match m {
-        -1 => "Keine".into(),
-        0 => "0 Minuten".into(),
-        m if m < 60 => format!("{m} Minuten"),
-        60 => "1 Stunde".into(),
-        m if m < 1440 => format!("{} Stunden", m / 60),
-        _ => "1 Tag".into(),
+        -1 => "None".into(),
+        0 => "0 minutes".into(),
+        m if m < 60 => format!("{m} minutes"),
+        60 => "1 hour".into(),
+        m if m < 1440 => format!("{} hours", m / 60),
+        _ => "1 day".into(),
     }
 }
 

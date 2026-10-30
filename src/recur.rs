@@ -1,4 +1,4 @@
-//! Recurring appointments ("Serientermine"): the pattern is stored in
+//! Recurring appointments (series): the pattern is stored in
 //! `events.recurrence` as `freq;interval;weekday-mask;until`, e.g.
 //! `weekly;1;5;2027-03-31` (Mon+Wed, mask bit 0 = Monday) – and expanded
 //! into single occurrences for the visible range.
@@ -75,38 +75,38 @@ impl Recurrence {
         )
     }
 
-    /// Human readable summary, e.g. "Jede Woche am Montag, Mittwoch".
+    /// Human readable summary, e.g. "Every week on Monday, Wednesday".
     pub fn describe(&self) -> String {
         const DAYS: [&str; 7] = [
-            "Montag",
-            "Dienstag",
-            "Mittwoch",
-            "Donnerstag",
-            "Freitag",
-            "Samstag",
-            "Sonntag",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
         ];
         let every = |one: &str, many: &str| {
             if self.interval == 1 {
                 one.to_string()
             } else {
-                format!("Alle {} {many}", self.interval)
+                format!("Every {} {many}", self.interval)
             }
         };
         let mut s = match self.freq {
-            Freq::Daily => every("Jeden Tag", "Tage"),
+            Freq::Daily => every("Every day", "days"),
             Freq::Weekly => {
                 let days: Vec<&str> = (0..7)
                     .filter(|i| self.weekdays & (1 << i) != 0)
                     .map(|i| DAYS[i])
                     .collect();
-                format!("{} am {}", every("Jede Woche", "Wochen"), days.join(", "))
+                format!("{} on {}", every("Every week", "weeks"), days.join(", "))
             }
-            Freq::Monthly => every("Jeden Monat", "Monate"),
-            Freq::Yearly => every("Jedes Jahr", "Jahre"),
+            Freq::Monthly => every("Every month", "months"),
+            Freq::Yearly => every("Every year", "years"),
         };
         if let Some(u) = self.until {
-            s.push_str(&format!(" bis {}", u.format("%d.%m.%Y")));
+            s.push_str(&format!(" until {}", u.format("%d/%m/%Y")));
         }
         s
     }
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(Recurrence::parse(&r.format()), Some(r.clone()));
         assert_eq!(
             r.describe(),
-            "Alle 2 Wochen am Montag, Mittwoch bis 31.03.2027"
+            "Every 2 weeks on Monday, Wednesday until 31/03/2027"
         );
         assert!(Recurrence::parse("").is_none());
     }
