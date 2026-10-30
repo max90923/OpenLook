@@ -16,22 +16,25 @@ Ein nativer Desktop-Client für E-Mail, Kalender, Kontakte und Aufgaben – aufg
 
 | Modul | Funktionen |
 |---|---|
-| **E-Mail** | HTML-Anzeige (fett, kursiv, Links, Überschriften, Listen, Zitate, Tabellen), Anlagen öffnen/speichern/alle speichern, Unterhaltungsansicht, Ordner anlegen/umbenennen/löschen, Regeln, Drucken (`Strg+P`), Nachrichtenliste mit Gruppen (Heute, Gestern, Wochentag, Letzte Woche …), Alle/Ungelesen, Sortierung nach Datum/Von/Betreff, Suche im aktuellen Ordner oder in allen Postfächern, Lesebereich rechts/unten/aus, Nachrichtenvorschau, Antworten/Allen antworten/Weiterleiten, Löschen → „Gelöschte Elemente“, Archivieren, Junk-E-Mail, Verschieben (auch per Drag & Drop), Ungelesen/Gelesen, Kategorien, Zur Nachverfolgung, Anheften, Doppelklick öffnet die Nachricht im eigenen Fenster, Original-HTML im Browser |
+| **E-Mail** | HTML-Anzeige (fett, kursiv, Links, Überschriften, Listen, Zitate, Tabellen), Anlagen öffnen/speichern/alle speichern, Unterhaltungsansicht, Ordnerbaum mit Unterordnern, Ordner anlegen/umbenennen/löschen, öffentliche/freigegebene IMAP-Ordner, Regeln, Drucken (`Strg+P`), Nachrichtenliste mit Gruppen (Heute, Gestern, Wochentag, Letzte Woche …), Alle/Ungelesen, Sortierung nach Datum/Von/Betreff, Suche im aktuellen Ordner oder in allen Postfächern, Lesebereich rechts/unten/aus, Nachrichtenvorschau, Antworten/Allen antworten/Weiterleiten, Löschen → „Gelöschte Elemente“, Archivieren, Junk-E-Mail, Verschieben (auch per Drag & Drop), Ungelesen/Gelesen, Kategorien, Zur Nachverfolgung, Anheften, Doppelklick öffnet die Nachricht im eigenen Fenster, Original-HTML im Browser |
 | **Verfassen** | Formatierung (fett, kursiv, unterstrichen, Aufzählung, Nummerierung – wird beim Tippen formatiert angezeigt und als HTML gesendet), Datei anfügen, Weiterleiten mit Anlagen, Senden-Schaltfläche links, Von/An/Cc/Bcc, Adressbuch, Namen überprüfen, AutoVervollständigen aus den Kontakten, Signatur, Wichtigkeit hoch/niedrig, Entwürfe, Nachfrage „Änderungen speichern?“ |
 | **Kalender** | Datumsnavigator (zwei Monate), Tag/Arbeitswoche/Woche/Monat, Heute, Nächste 7 Tage, Arbeitszeit hervorgehoben, Jetzt-Linie, überlappende Termine nebeneinander, ganztägige Ereignisse, Kalender ein-/ausblenden, Termin und Besprechung (Teilnehmer), Serientermine (täglich, wöchentlich mit Wochentagen, monatlich, jährlich, mit/ohne Enddatum), Besprechungsanfragen annehmen/mit Vorbehalt/ablehnen (Microsoft 365), Anzeigen als, Erinnerung, Kategorien |
 | **Regeln** | „Regeln und Benachrichtigungen“: Bedingung (Absender, Betreff, Empfänger, Text enthält) → Aktion (verschieben, als gelesen markieren, kennzeichnen, Kategorie, löschen); gelten für neue Nachrichten nach jedem Senden/Empfangen, „Regeln jetzt anwenden“ für den ganzen Posteingang |
 | **Automatische Antworten** | Abwesenheitsnotiz mit Zeitraum und getrennten Texten für intern/extern (Microsoft 365) |
 | **Erinnerungen** | Erinnerungsfenster mit „Alle schließen“, „Element öffnen“, „Schließen“ und „Erneut erinnern“ |
 | **Personen** | Ansichten Personen, Visitenkarte und Liste; Kontaktfenster mit Visitenkarten-Vorschau; Favoriten; E-Mail/Besprechung an Kontakt |
+| **Notizen** | Haftnotizen in eigenen farbigen Fenstern, speichern sich selbst; Ansichten Symbol und Notizenliste; Farben |
+| **Journal** | Journaleinträge (Telefonanruf, Besprechung, E-Mail-Nachricht, Aufgabe, Dokument, Gespräch, Notiz) mit Zeitgeber, Liste nach Eintragstyp |
 | **Aufgaben** | Tabellenansicht mit „Klicken Sie hier, um eine neue Aufgabe zu erstellen“, Fällig am, In Ordner, Nachverfolgung (Heute, Morgen, Diese Woche, Nächste Woche, Kein Datum), Ansichten Einfache Liste/Aktiv/Erledigt/Heute/Überfällig, Aufgabenfenster |
 
-Tastenkombinationen wie in Outlook: `Strg+N` neues Element, `Strg+R` / `Strg+Umschalt+R` antworten / allen antworten, `Strg+F` weiterleiten, `Entf` löschen, `Strg+Q` / `Strg+U` gelesen / ungelesen, `Einfg` kennzeichnen, `Strg+E` suchen, `Alt+S` senden, `Strg+1…4` Module, `F9` Senden/Empfangen, `Strg+F1` Menüband.
+Tastenkombinationen wie in Outlook: `Strg+N` neues Element, `Strg+R` / `Strg+Umschalt+R` antworten / allen antworten, `Strg+F` weiterleiten, `Entf` löschen, `Strg+Q` / `Strg+U` gelesen / ungelesen, `Einfg` kennzeichnen, `Strg+E` suchen, `Alt+S` senden, `Strg+1…4` Module, `Strg+5` Notizen, `Strg+8` Journal, `Strg+B/I/U` fett/kursiv/unterstrichen, `Strg+P` drucken, `F9` Senden/Empfangen, `Strg+F1` Menüband. Notizen und Journal erreicht man wie in Outlook über „···“ in der Modulleiste.
 
 ## Konten
 
 * **Lokales Postfach** – immer vorhanden, mit Beispieldaten; funktioniert komplett offline.
 * **IMAP/SMTP** – jedes Postfach; für Gmail, GMX, WEB.DE, T-Online, iCloud, Posteo, Yahoo, mailbox.org, freenet und AOL werden die Server automatisch eingetragen. IMAP über SSL/TLS (993), SMTP über STARTTLS (587) oder SSL/TLS (465). Kalender, Kontakte und Aufgaben werden bei IMAP-Konten lokal gespeichert.
-* **Microsoft 365 / Outlook.com** – über Microsoft Graph: E-Mail, Kalender, Kontakte und Microsoft To Do werden synchronisiert; Änderungen gehen direkt an den Server.
+* **Microsoft 365 / Outlook.com** – über Microsoft Graph: E-Mail (mit Unterordnern), Kalender, Kontakte und Microsoft To Do werden synchronisiert; Änderungen gehen direkt an den Server.
+* **Freigegebene Postfächer (Microsoft 365)** – *Datei → Kontoeinstellungen → Freigegebenes Postfach hinzufügen…*; erscheinen als eigenes Postfach im Ordnerbereich (E-Mail, Kalender, Kontakte) und nutzen die Anmeldung des eigenen Kontos.
 
 ### Microsoft-Anmeldung einrichten
 
@@ -41,7 +44,8 @@ MailCraft nutzt den OAuth-Gerätecode-Flow (kein Redirect, kein Client-Secret):
    Kontotyp: „Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten“.
 2. Unter *Authentifizierung* „Öffentliche Clientflows zulassen“ aktivieren.
 3. Unter *API-Berechtigungen* (Microsoft Graph, delegiert) hinzufügen:
-   `User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite offline_access`.
+   `User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite MailboxSettings.ReadWrite offline_access`,
+   für freigegebene Postfächer zusätzlich `Mail.ReadWrite.Shared Mail.Send.Shared Calendars.ReadWrite.Shared Contacts.ReadWrite.Shared`.
 4. Die *Anwendungs-ID (Client-ID)* als Umgebungsvariable setzen und MailCraft starten:
 
 ```sh
@@ -57,7 +61,16 @@ Dann *Datei → Konto hinzufügen → Erweiterte Optionen → Microsoft 365*, de
 cargo run --release
 ```
 
-Ergebnis ist eine einzelne ausführbare Datei (`target/release/mailcraft`, unter Windows `mailcraft.exe`). Unter Windows wird automatisch die Systemschrift Segoe UI verwendet. Unter Linux werden zur Laufzeit die üblichen Desktop-Bibliotheken benötigt (OpenGL, `libxkbcommon-x11` bzw. Wayland).
+Ergebnis ist eine einzelne ausführbare Datei (`target/release/mailcraft`, unter Windows `mailcraft.exe`).
+
+Windows-Programm von Linux aus bauen (MinGW):
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+sudo apt install gcc-mingw-w64-x86-64
+cargo build --release --target x86_64-pc-windows-gnu   # → target/x86_64-pc-windows-gnu/release/mailcraft.exe
+```
+ Unter Windows wird automatisch die Systemschrift Segoe UI verwendet. Unter Linux werden zur Laufzeit die üblichen Desktop-Bibliotheken benötigt (OpenGL, `libxkbcommon-x11` bzw. Wayland).
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -65,6 +78,29 @@ Ergebnis ist eine einzelne ausführbare Datei (`target/release/mailcraft`, unter
 | `MAILCRAFT_GRAPH_CLIENT_ID` | – | Client-ID für die Microsoft-Anmeldung |
 | `MAILCRAFT_GRAPH_TENANT` | `common` | `common`, `organizations`, `consumers` oder Tenant-ID |
 | `MAILCRAFT_SYNC_MINUTES` | `5` | Intervall für automatisches Senden/Empfangen |
+| `MAILCRAFT_CA_FILE` | – | Zusätzliche CA-Zertifikate (PEM) für Mailserver mit eigener Zertifizierungsstelle |
+| `MAILCRAFT_GRAPH_URL` | `https://graph.microsoft.com/v1.0` | Graph-Endpunkt (z. B. für nationale Clouds) |
+
+## Tests
+
+```sh
+cargo test                       # Unit-Tests + Microsoft-365-Provider gegen einen nachgebauten Graph-Server
+```
+
+Ende-zu-Ende gegen einen echten IMAP/SMTP-Server (Senden mit Anlage, Abrufen, Flags, Ordner und Unterordner, Papierkorb, Regeln, öffentliche Ordner):
+
+```sh
+MAILCRAFT_IT_HOST=mail.example.org MAILCRAFT_IT_USER=… MAILCRAFT_IT_PASSWORD=… MAILCRAFT_IT_ADDRESS=… \
+  cargo test -- --ignored imap_end_to_end
+```
+
+Schlüsselbund (braucht einen laufenden Secret Service bzw. die Windows-Anmeldeinformationsverwaltung):
+
+```sh
+cargo test -- --ignored keyring_roundtrip
+```
+
+Geprüft wurde: Linux (X11) nativ; die Windows-Version unter Wine (alle Tests, Schlüsselbund, IMAP-Ende-zu-Ende, Oberfläche); IMAP/SMTP gegen Dovecot/Postfix; Microsoft 365 gegen einen Graph-Nachbau.
 
 ## Aufbau
 
@@ -78,8 +114,13 @@ src/
     mail.rs          E-Mail-Modul    compose.rs   Nachrichtenfenster
     calendar.rs      Kalender + Terminfenster      reminders.rs Erinnerungen
     people.rs        Personen + Kontaktfenster     tasks.rs     Aufgaben + Aufgabenfenster
-    backstage.rs     Datei-Backstage, Optionen, „Konto hinzufügen“
+    notes.rs         Notizen + Journal             html.rs      HTML-Anzeige, Editor-Formatierung
+    rules_ui.rs      Regeln-Fenster
+    backstage.rs     Datei-Backstage, Optionen, „Konto hinzufügen“, automatische Antworten
   providers/         imap.rs (IMAP/SMTP), graph.rs (Microsoft Graph), mod.rs (Verteilung)
+  rules.rs           Regel-Engine
+  recur.rs           Serienmuster von Terminen
+  secrets.rs         Schlüsselbund des Betriebssystems
   db.rs              SQLite-Schema und Abfragen
   mail.rs            MIME-Parsing, HTML→Text
   seed.rs            Beispieldaten des lokalen Postfachs
@@ -98,4 +139,5 @@ IMAP-Kennwörter und Microsoft-Tokens werden im Schlüsselbund des Betriebssyste
 * Pro Ordner werden die neuesten 100 Nachrichten zwischengespeichert.
 * Abwesenheitsnotizen und Besprechungsantworten gibt es nur für Microsoft-365-Konten (IMAP hat dafür keinen Standard).
 * Regeln laufen im Client (wie Outlooks „nur auf diesem Computer“-Regeln), also nur, wenn MailCraft geöffnet ist.
-* Nicht enthalten: freigegebene Postfächer und Kalender anderer Personen, Exchange-Öffentliche Ordner, Notizen und Journal.
+* Öffentliche Ordner von Exchange sind über Microsoft Graph nicht zugänglich (Microsoft bietet dafür keine Graph-Schnittstelle); öffentliche IMAP-Ordner werden angezeigt.
+* Notizen und Journal werden lokal gespeichert (Microsoft Graph bietet keine Schnittstelle für Outlook-Notizen und -Journal).
