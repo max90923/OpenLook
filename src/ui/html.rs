@@ -1,6 +1,6 @@
 //! Minimal HTML rendering for the reading pane and a small formatting
-//! markup for writing mails (`**fett**`, `~~kursiv~~`, `__unterstrichen__`,
-//! `• Aufzählung`, `1. Nummerierung`) that is shown styled while typing
+//! markup for writing mails (`**bold**`, `~~italic~~`, `__underline__`,
+//! `• bullet`, `1. numbering`) that is shown styled while typing
 //! and sent as HTML.
 
 use eframe::egui::{self, text::LayoutJob, Color32, FontId, RichText, TextFormat};
@@ -276,7 +276,7 @@ fn parse_inner(html: &str) -> Vec<Block> {
                 ("img", false) => {
                     let alt = attr(tag, "alt")
                         .filter(|a| !a.trim().is_empty())
-                        .unwrap_or_else(|| "Bild".into());
+                        .unwrap_or_else(|| "Image".into());
                     cur.runs.push(Run {
                         text: format!("[{alt}]"),
                         style: Style {
@@ -777,13 +777,13 @@ mod tests {
     #[test]
     fn parses_inline_styles_and_links() {
         let blocks =
-            parse("<p>Hallo <b>fett</b> und <a href=\"https://x.de\">Link</a> &amp; mehr</p>");
+            parse("<p>Hello <b>bold</b> and <a href=\"https://x.de\">Link</a> &amp; more</p>");
         assert_eq!(blocks.len(), 1);
-        assert_eq!(text_of(&blocks[0]), "Hallo fett und Link & mehr");
+        assert_eq!(text_of(&blocks[0]), "Hello bold and Link & more");
         assert!(blocks[0]
             .runs
             .iter()
-            .any(|r| r.style.bold && r.text == "fett"));
+            .any(|r| r.style.bold && r.text == "bold"));
         assert!(blocks[0]
             .runs
             .iter()
@@ -792,35 +792,35 @@ mod tests {
 
     #[test]
     fn parses_lists_headings_and_skips_style() {
-        let blocks = parse("<style>p{color:red}</style><h1>Titel</h1><ol><li>eins</li><li>zwei</li></ol><ul><li>a</li></ul>");
+        let blocks = parse("<style>p{color:red}</style><h1>Title</h1><ol><li>one</li><li>two</li></ol><ul><li>a</li></ul>");
         let texts: Vec<String> = blocks
             .iter()
             .filter(|b| !b.runs.is_empty())
             .map(text_of)
             .collect();
-        assert_eq!(texts, vec!["Titel", "1. eins", "2. zwei", "•  a"]);
+        assert_eq!(texts, vec!["Title", "1. one", "2. two", "•  a"]);
         assert!(blocks[0].runs[0].style.bold && blocks[0].runs[0].style.size > 20.0);
     }
 
     #[test]
     fn keeps_line_breaks_of_plain_text_mails() {
-        let blocks = parse("<div style=\"white-space:pre-wrap\">Zeile 1\nZeile 2</div>");
+        let blocks = parse("<div style=\"white-space:pre-wrap\">Line 1\nLine 2</div>");
         let texts: Vec<String> = blocks
             .iter()
             .filter(|b| !b.runs.is_empty())
             .map(text_of)
             .collect();
-        assert_eq!(texts, vec!["Zeile 1", "Zeile 2"]);
+        assert_eq!(texts, vec!["Line 1", "Line 2"]);
     }
 
     #[test]
     fn links_plain_urls() {
         assert_eq!(
-            split_urls("Siehe https://x.de/a?b=1. Oder www.y.de, mail: mailto:a@b.de"),
+            split_urls("See https://x.de/a?b=1. Or www.y.de, mail: mailto:a@b.de"),
             vec![
-                ("Siehe ".to_string(), false),
+                ("See ".to_string(), false),
                 ("https://x.de/a?b=1".to_string(), true),
-                (". Oder ".to_string(), false),
+                (". Or ".to_string(), false),
                 ("www.y.de".to_string(), true),
                 (", mail: ".to_string(), false),
                 ("mailto:a@b.de".to_string(), true),
@@ -846,27 +846,27 @@ mod tests {
 
     #[test]
     fn wraps_and_unwraps_selection() {
-        let mut t = "Hallo Welt".to_string();
-        let sel = toggle_wrap(&mut t, (6, 10), "**");
-        assert_eq!(t, "Hallo **Welt**");
-        assert_eq!(sel, (8, 12));
+        let mut t = "Hello World".to_string();
+        let sel = toggle_wrap(&mut t, (6, 11), "**");
+        assert_eq!(t, "Hello **World**");
+        assert_eq!(sel, (8, 13));
         toggle_wrap(&mut t, sel, "**");
-        assert_eq!(t, "Hallo Welt");
-        let mut u = "Grüße".to_string();
+        assert_eq!(t, "Hello World");
+        let mut u = "naïve".to_string();
         toggle_wrap(&mut u, (0, 5), ITALIC);
-        assert_eq!(u, "~~Grüße~~");
+        assert_eq!(u, "~~naïve~~");
         // Typing with shortcuts: on, text, off, text.
-        let mut t = "Das ist ".to_string();
+        let mut t = "This is ".to_string();
         let sel = toggle_wrap(&mut t, (8, 8), BOLD);
         assert_eq!(sel, (10, 10));
-        t.insert_str(10, "wichtig");
+        t.insert_str(10, "crucial");
         let sel = toggle_wrap(&mut t, (17, 17), BOLD);
         assert_eq!(sel, (19, 19));
-        t.push_str(" und ");
+        t.push_str(" and ");
         let sel = toggle_wrap(&mut t, (24, 24), ITALIC);
-        t.insert_str(sel.0, "kursiv");
-        assert_eq!(t, "Das ist **wichtig** und ~~kursiv~~");
-        assert!(markup_to_html(&t).contains("Das ist <b>wichtig</b> und <i>kursiv</i>"));
+        t.insert_str(sel.0, "italic");
+        assert_eq!(t, "This is **crucial** and ~~italic~~");
+        assert!(markup_to_html(&t).contains("This is <b>crucial</b> and <i>italic</i>"));
     }
 
     #[test]
@@ -882,9 +882,9 @@ mod tests {
 
     #[test]
     fn markup_to_html_formats() {
-        let html = markup_to_html("Hallo **Welt** und ~~du~~\n• eins\n• zwei\n1. a\n<b>");
-        assert!(html.contains("Hallo <b>Welt</b> und <i>du</i><br>"));
-        assert!(html.contains("<ul><li>eins</li><li>zwei</li></ul>"));
+        let html = markup_to_html("Hello **World** and ~~you~~\n• one\n• two\n1. a\n<b>");
+        assert!(html.contains("Hello <b>World</b> and <i>you</i><br>"));
+        assert!(html.contains("<ul><li>one</li><li>two</li></ul>"));
         assert!(html.contains("<ol><li>a</li></ol>"));
         assert!(html.contains("&lt;b&gt;"));
     }

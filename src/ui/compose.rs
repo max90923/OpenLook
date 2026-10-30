@@ -1,4 +1,4 @@
-//! Message windows: read a message ("Nachricht") or write one
+//! Message windows: read a message or write one
 //! (new, reply, reply all, forward, draft) – each in its own OS window.
 
 use eframe::egui::{self, RichText};
@@ -21,7 +21,7 @@ pub enum ComposeKind {
     Reply(i64),
     ReplyAll(i64),
     Forward(i64),
-    /// Forward to a fixed recipient (QuickStep "An Vorgesetzte(n)").
+    /// Forward to a fixed recipient (Quick Step "To Manager").
     ForwardTo(i64, String),
     EditDraft(i64),
 }
@@ -48,9 +48,9 @@ pub struct Composer {
     tab: usize,
     read_receipt: bool,
     delivery_receipt: bool,
-    /// "Antworten richten an": Some = field shown.
+    /// "Direct Replies To": Some = field shown.
     reply_to: Option<String>,
-    /// "Übermittlung verzögern": not before this local date and time.
+    /// "Delay Delivery": not before this local date and time.
     send_at: Option<(chrono::NaiveDate, chrono::NaiveTime)>,
     file_menu: bool,
     changed: bool,
@@ -145,7 +145,7 @@ impl App {
         // Outlook's quoted header block.
         let quote = |m: &Message| {
             let header = format!(
-                "\n\n________________________________\nVon: {} <{}>\nGesendet: {}\nAn: {}\n{}Betreff: {}\n\n",
+                "\n\n________________________________\nFrom: {} <{}>\nSent: {}\nTo: {}\n{}Subject: {}\n\n",
                 m.summary.from_name,
                 m.summary.from_addr,
                 super::long_date(&m.summary.date),
@@ -155,11 +155,15 @@ impl App {
             );
             format!("{sig}{header}{}", m.body_text)
         };
-        let prefixed = |p: &str, s: &str| {
-            if s.to_lowercase().starts_with(&p.to_lowercase()) {
+        // Write the English prefix, but also recognise existing German ones (AW:/WG:).
+        let prefixed = |ps: &[&str], s: &str| {
+            if ps
+                .iter()
+                .any(|p| s.to_lowercase().starts_with(&p.to_lowercase()))
+            {
                 s.to_string()
             } else {
-                format!("{p} {s}")
+                format!("{} {s}", ps[0])
             }
         };
         match (kind, original) {
@@ -167,7 +171,7 @@ impl App {
             (ComposeKind::To(addr), _) => c.to = addr,
             (ComposeKind::Reply(_), Some(m)) => {
                 c.to = m.summary.from_addr.clone();
-                c.subject = prefixed("AW:", &m.summary.subject);
+                c.subject = prefixed(&["RE:", "AW:"], &m.summary.subject);
                 c.body = quote(&m);
             }
             (ComposeKind::ReplyAll(_), Some(m)) => {
@@ -181,18 +185,18 @@ impl App {
                         .collect();
                 c.to = m.summary.from_addr.clone();
                 c.cc = others.join("; ");
-                c.subject = prefixed("AW:", &m.summary.subject);
+                c.subject = prefixed(&["RE:", "AW:"], &m.summary.subject);
                 c.body = quote(&m);
             }
             (ComposeKind::Forward(_), Some(m)) => {
-                c.subject = prefixed("WG:", &m.summary.subject);
+                c.subject = prefixed(&["FW:", "FWD:", "WG:"], &m.summary.subject);
                 c.body = quote(&m);
                 c.attachments =
                     db::attachments_with_data(&self.st.db(), m.summary.id).unwrap_or_default();
             }
             (ComposeKind::ForwardTo(_, to), Some(m)) => {
                 c.to = to;
-                c.subject = prefixed("WG:", &m.summary.subject);
+                c.subject = prefixed(&["FW:", "FWD:", "WG:"], &m.summary.subject);
                 c.body = quote(&m);
                 c.attachments =
                     db::attachments_with_data(&self.st.db(), m.summary.id).unwrap_or_default();
@@ -200,7 +204,10 @@ impl App {
             (ComposeKind::EditDraft(id), Some(m)) => {
                 c.to = m.to.clone();
                 c.cc = m.cc.clone();
-                c.subject = if m.summary.subject == "(kein Betreff)" {
+                c.subject = if matches!(
+                    m.summary.subject.as_str(),
+                    "(no subject)" | "(kein Betreff)"
+                ) {
                     String::new()
                 } else {
                     m.summary.subject.clone()
@@ -227,9 +234,9 @@ impl App {
         }
         let t = self.t;
         let title = format!(
-            "{} - Nachricht (HTML)",
+            "{} - Message (HTML)",
             if c.subject.trim().is_empty() {
-                "Unbenannt"
+                "Untitled"
             } else {
                 c.subject.trim()
             }
@@ -252,27 +259,27 @@ impl App {
             let file = chrome::item_ribbon_tabs(
                 ui,
                 &t,
-                &["Nachricht", "Einfügen", "Optionen", "Text formatieren"],
+                &["Message", "Insert", "Options", "Format Text"],
                 &mut tab,
                 |ui, tab| match tab {
                     0 => {
                         group_names(ui, &t, c, &contacts, &groups);
                         group_basic_text(ui, &t, c);
-                        chrome::group(ui, &t, "Einschließen", |ui| {
+                        chrome::group(ui, &t, "Include", |ui| {
                             attach_button(ui, &t, c);
                             signature_button(ui, &t, c, &signature);
                         });
                         group_tags(ui, &t, c);
                     }
                     1 => {
-                        chrome::group(ui, &t, "Einschließen", |ui| {
+                        chrome::group(ui, &t, "Include", |ui| {
                             attach_button(ui, &t, c);
                             let r = chrome::large(
                                 ui,
                                 &t,
                                 ph::IDENTIFICATION_CARD,
                                 IC_BLUE,
-                                "Visiten-\nkarte \u{E136}",
+                                "Business\nCard \u{E136}",
                                 !contacts.is_empty(),
                             );
                             chrome::menu(&r, |ui| {
@@ -300,7 +307,7 @@ impl App {
                             let r =
                                 chrome::large(ui, &t, ph::GLOBE, IC_BLUE, "Link \u{E136}", true);
                             chrome::menu(&r, |ui| {
-                                ui.label("Adresse:");
+                                ui.label("Address:");
                                 let id = egui::Id::new(("link_input", wid));
                                 let mut url: String = ui
                                     .data(|d| d.get_temp(id))
@@ -308,7 +315,7 @@ impl App {
                                 let resp = ui
                                     .add(egui::TextEdit::singleline(&mut url).desired_width(280.0));
                                 ui.data_mut(|d| d.insert_temp(id, url.clone()));
-                                if ui.button("Einfügen").clicked()
+                                if ui.button("Insert").clicked()
                                     || (resp.lost_focus()
                                         && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                                 {
@@ -319,18 +326,18 @@ impl App {
                             });
                         });
                         chrome::group(ui, &t, "Text", |ui| {
-                            if chrome::large(ui, &t, ph::CLOCK, IC_BLUE, "Datum und\nUhrzeit", true)
+                            if chrome::large(ui, &t, ph::CLOCK, IC_BLUE, "Date &\nTime", true)
                                 .clicked()
                             {
                                 insert_at_cursor(
                                     c,
-                                    &chrono::Local::now().format("%d.%m.%Y %H:%M").to_string(),
+                                    &chrono::Local::now().format("%d/%m/%Y %H:%M").to_string(),
                                 );
                             }
                         });
                     }
                     2 => {
-                        chrome::group(ui, &t, "Felder anzeigen", |ui| {
+                        chrome::group(ui, &t, "Show Fields", |ui| {
                             if chrome::large(
                                 ui,
                                 &t,
@@ -344,7 +351,7 @@ impl App {
                                 c.show_bcc = !c.show_bcc;
                             }
                         });
-                        chrome::group(ui, &t, "Verlauf", |ui| {
+                        chrome::group(ui, &t, "Tracking", |ui| {
                             chrome::column(ui, |ui| {
                                 let check = |on: bool, label: &str| {
                                     if on {
@@ -358,7 +365,7 @@ impl App {
                                     &t,
                                     ph::ENVELOPE_SIMPLE_OPEN,
                                     IC_BLUE,
-                                    &check(c.read_receipt, "Lesebestätigung anfordern"),
+                                    &check(c.read_receipt, "Request a Read Receipt"),
                                     true,
                                 )
                                 .clicked()
@@ -370,10 +377,7 @@ impl App {
                                     &t,
                                     ph::PAPER_PLANE_RIGHT,
                                     IC_BLUE,
-                                    &check(
-                                        c.delivery_receipt,
-                                        "Übermittlungsbestätigung anfordern",
-                                    ),
+                                    &check(c.delivery_receipt, "Request a Delivery Receipt"),
                                     true,
                                 )
                                 .clicked()
@@ -382,11 +386,11 @@ impl App {
                                 }
                             });
                         });
-                        chrome::group(ui, &t, "Weitere Optionen", |ui| {
+                        chrome::group(ui, &t, "More Options", |ui| {
                             let label = if c.send_at.is_some() {
-                                "Übermittlung\nverzögern \u{E182}"
+                                "Delay\nDelivery \u{E182}"
                             } else {
-                                "Übermittlung\nverzögern"
+                                "Delay\nDelivery"
                             };
                             if chrome::large(ui, &t, ph::CLOCK, IC_BLUE, label, true).clicked() {
                                 c.send_at = match c.send_at {
@@ -407,9 +411,9 @@ impl App {
                                 };
                             }
                             let label = if c.reply_to.is_some() {
-                                "Antworten\nrichten an \u{E182}"
+                                "Direct\nReplies To \u{E182}"
                             } else {
-                                "Antworten\nrichten an"
+                                "Direct\nReplies To"
                             };
                             if chrome::large(ui, &t, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, label, true)
                                 .clicked()
@@ -435,7 +439,7 @@ impl App {
                 .show(ui, |ui| {
                     ui.add_enabled_ui(!c.sending, |ui| {
                         ui.horizontal_top(|ui| {
-                            // Big "Senden" button left of the address rows, like Outlook.
+                            // Big "Send" button left of the address rows, like Outlook.
                             let rows = if c.show_bcc { 4.0 } else { 3.0 };
                             let (r, resp) = ui.allocate_exact_size(
                                 egui::vec2(64.0, rows * 30.0 - 6.0),
@@ -463,11 +467,11 @@ impl App {
                             ui.painter().text(
                                 r.center() + egui::vec2(0.0, 16.0),
                                 egui::Align2::CENTER_CENTER,
-                                if c.sending { "…" } else { "Senden" },
+                                if c.sending { "…" } else { "Send" },
                                 egui::FontId::proportional(12.5),
                                 t.text,
                             );
-                            if resp.on_hover_text("Senden (Alt+S)").clicked() {
+                            if resp.on_hover_text("Send (Alt+S)").clicked() {
                                 send = true;
                             }
                             ui.vertical(|ui| {
@@ -481,7 +485,7 @@ impl App {
                                         .unwrap_or_default();
                                     let r = ui.add_sized(
                                         [72.0, 26.0],
-                                        egui::Button::new(format!("Von {}", ph::CARET_DOWN)),
+                                        egui::Button::new(format!("From {}", ph::CARET_DOWN)),
                                     );
                                     chrome::menu(&r, |ui| {
                                         for a in &accounts {
@@ -494,7 +498,7 @@ impl App {
                                     ui.label(from);
                                 });
                                 let mut book = None;
-                                for (i, label) in ["An…", "Cc…", "Bcc…"].into_iter().enumerate()
+                                for (i, label) in ["To…", "Cc…", "Bcc…"].into_iter().enumerate()
                                 {
                                     if i == 2 && !c.show_bcc {
                                         continue;
@@ -529,7 +533,7 @@ impl App {
                             });
                         });
                         ui.horizontal(|ui| {
-                            ui.add_sized([136.0, 24.0], egui::Label::new("Betreff"));
+                            ui.add_sized([136.0, 24.0], egui::Label::new("Subject"));
                             let r = ui.add(
                                 egui::TextEdit::singleline(&mut c.subject)
                                     .desired_width(ui.available_width() - 4.0),
@@ -538,21 +542,24 @@ impl App {
                         });
                         if let Some(rt) = &mut c.reply_to {
                             ui.horizontal(|ui| {
-                                ui.add_sized([136.0, 24.0], egui::Label::new("Antworten an"));
+                                ui.add_sized([136.0, 24.0], egui::Label::new("Reply to"));
                                 ui.add(
                                     egui::TextEdit::singleline(rt)
-                                        .hint_text("Adresse für Antworten")
+                                        .hint_text("Address for replies")
                                         .desired_width(ui.available_width() - 16.0),
                                 );
                             });
                         }
                         if let Some((d, tm)) = &mut c.send_at {
                             ui.horizontal(|ui| {
-                                ui.add_sized([136.0, 24.0], egui::Label::new("Nicht senden vor"));
+                                ui.add_sized(
+                                    [136.0, 24.0],
+                                    egui::Label::new("Do not deliver before"),
+                                );
                                 ui.add(
                                     egui_extras::DatePickerButton::new(d)
                                         .id_salt(&format!("send_at{wid}"))
-                                        .format("%d.%m.%Y"),
+                                        .format("%d/%m/%Y"),
                                 );
                                 egui::ComboBox::from_id_salt(("send_at_time", wid))
                                     .width(70.0)
@@ -577,7 +584,7 @@ impl App {
                         }
                         if !c.attachments.is_empty() {
                             ui.horizontal_wrapped(|ui| {
-                                ui.add_sized([136.0, 24.0], egui::Label::new("Angefügt"));
+                                ui.add_sized([136.0, 24.0], egui::Label::new("Attached"));
                                 let mut remove = None;
                                 for (i, a) in c.attachments.iter().enumerate() {
                                     let r = ui.add(egui::Button::new((
@@ -589,7 +596,7 @@ impl App {
                                         ),
                                         RichText::new(ph::X).color(t.text_weak),
                                     )));
-                                    if r.on_hover_text("Anlage entfernen").clicked() {
+                                    if r.on_hover_text("Remove attachment").clicked() {
                                         remove = Some(i);
                                     }
                                 }
@@ -669,13 +676,13 @@ impl App {
             }
             if let Some(field) = c.address_book {
                 let mut open = true;
-                egui::Window::new("Namen auswählen: Kontakte")
+                egui::Window::new("Select Names: Contacts")
                     .open(&mut open)
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                     .show(ui.ctx(), |ui| {
-                        ui.label("Doppelklick (oder Klick) fügt den Namen hinzu:");
+                        ui.label("Double-click (or click) a name to add it:");
                         egui::ScrollArea::vertical()
                             .max_height(300.0)
                             .show(ui, |ui| {
@@ -720,18 +727,18 @@ impl App {
             }
             if c.file_menu {
                 let mut open = true;
-                egui::Window::new("Datei")
+                egui::Window::new("File")
                     .open(&mut open)
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 60.0))
                     .show(ui.ctx(), |ui| {
                         ui.set_min_width(220.0);
-                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Speichern (Strg+S)") {
+                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Save (Ctrl+S)") {
                             save = true;
                             c.file_menu = false;
                         }
-                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Speichern unter…") {
+                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Save As…") {
                             c.file_menu = false;
                             let from = accounts
                                 .iter()
@@ -741,13 +748,13 @@ impl App {
                             let name = format!(
                                 "{}.eml",
                                 mail::safe_file_name(if c.subject.trim().is_empty() {
-                                    "Nachricht"
+                                    "Message"
                                 } else {
                                     c.subject.trim()
                                 })
                             );
                             if let Some(path) = rfd::FileDialog::new()
-                                .set_title("Speichern unter")
+                                .set_title("Save As")
                                 .set_file_name(name)
                                 .save_file()
                             {
@@ -756,7 +763,7 @@ impl App {
                                 }
                             }
                         }
-                        if chrome::menu_item(ui, ph::X, IC_RED, "Schließen") {
+                        if chrome::menu_item(ui, ph::X, IC_RED, "Close") {
                             c.file_menu = false;
                             if c.changed {
                                 c.confirm_close = true
@@ -775,17 +782,17 @@ impl App {
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                     .show(ui.ctx(), |ui| {
-                        ui.label("Möchten Sie die Änderungen speichern?");
+                        ui.label("Want to save your changes?");
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("     Ja     ").clicked() {
+                            if ui.button("    Save    ").clicked() {
                                 save = true;
                                 discard = true;
                             }
-                            if ui.button("    Nein    ").clicked() {
+                            if ui.button(" Don't Save ").clicked() {
                                 discard = true;
                             }
-                            if ui.button(" Abbrechen ").clicked() {
+                            if ui.button("   Cancel   ").clicked() {
                                 c.confirm_close = false;
                             }
                         });
@@ -806,7 +813,7 @@ impl App {
                 Ok(new_id) => {
                     c.draft_id = Some(new_id);
                     c.changed = false;
-                    self.toast("Element gespeichert.", false);
+                    self.toast("Item saved.", false);
                     self.dirty = true;
                 }
                 Err(e) => self.toast(format!("{e:#}"), true),
@@ -850,7 +857,7 @@ impl App {
         false
     }
 
-    /// Read-only message window with Outlook's "Nachricht" ribbon.
+    /// Read-only message window with Outlook's "Message" ribbon.
     fn read_window(&mut self, ctx: &egui::Context, vid: egui::ViewportId, id: i64) -> bool {
         let t = self.t;
         let Some(m) = db::get_message(&self.st.db(), id).ok().flatten() else {
@@ -858,7 +865,7 @@ impl App {
         };
         let s = m.summary.clone();
         let atts = db::list_attachments(&self.st.db(), id).unwrap_or_default();
-        let title = format!("{} - Nachricht", s.subject);
+        let title = format!("{} - Message", s.subject);
         let folders: Vec<Folder> = self
             .data
             .folders
@@ -871,24 +878,24 @@ impl App {
         let mut close_requested = false;
         let mut close = chrome::native_window(ctx, vid, &title, [900.0, 720.0], &t, |ui| {
             let mut tab = 0;
-            let file = chrome::item_ribbon_tabs(ui, &t, &["Nachricht"], &mut tab, |ui, _| {
-                chrome::group(ui, &t, "Löschen", |ui| {
-                    if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", true).clicked() {
+            let file = chrome::item_ribbon_tabs(ui, &t, &["Message"], &mut tab, |ui, _| {
+                chrome::group(ui, &t, "Delete", |ui| {
+                    if chrome::large(ui, &t, ph::X, IC_RED, "Delete", true).clicked() {
                         acts.push(Act::Delete(s.id));
                     }
-                    if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archivieren", true).clicked() {
+                    if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archive", true).clicked() {
                         if let Some(f) = folders.iter().find(|f| f.role == "archive") {
                             acts.push(Act::Move(s.id, f.id));
                         }
                     }
                 });
-                chrome::group(ui, &t, "Drucken", |ui| {
-                    if chrome::large(ui, &t, ph::PRINTER, IC_GREY, "Drucken", true).clicked() {
+                chrome::group(ui, &t, "Print", |ui| {
+                    if chrome::large(ui, &t, ph::PRINTER, IC_GREY, "Print", true).clicked() {
                         acts.push(Act::Print(s.id));
                     }
                 });
-                chrome::group(ui, &t, "Antworten", |ui| {
-                    if chrome::large(ui, &t, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Antworten", true)
+                chrome::group(ui, &t, "Respond", |ui| {
+                    if chrome::large(ui, &t, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Reply", true)
                         .clicked()
                     {
                         acts.push(Act::Compose(ComposeKind::Reply(s.id)));
@@ -898,35 +905,22 @@ impl App {
                         &t,
                         ph::ARROW_BEND_DOUBLE_UP_LEFT,
                         IC_PURPLE,
-                        "Allen\nantworten",
+                        "Reply\nAll",
                         true,
                     )
                     .clicked()
                     {
                         acts.push(Act::Compose(ComposeKind::ReplyAll(s.id)));
                     }
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::ARROW_BEND_UP_RIGHT,
-                        IC_PURPLE,
-                        "Weiterleiten",
-                        true,
-                    )
-                    .clicked()
+                    if chrome::large(ui, &t, ph::ARROW_BEND_UP_RIGHT, IC_PURPLE, "Forward", true)
+                        .clicked()
                     {
                         acts.push(Act::Compose(ComposeKind::Forward(s.id)));
                     }
                 });
-                chrome::group(ui, &t, "Verschieben", |ui| {
-                    let r = chrome::large(
-                        ui,
-                        &t,
-                        ph::FOLDER_SIMPLE,
-                        IC_YELLOW,
-                        "Verschieben\n\u{E136}",
-                        true,
-                    );
+                chrome::group(ui, &t, "Move", |ui| {
+                    let r =
+                        chrome::large(ui, &t, ph::FOLDER_SIMPLE, IC_YELLOW, "Move\n\u{E136}", true);
                     chrome::menu(&r, |ui| {
                         for f in &folders {
                             if chrome::menu_item(ui, mail::folder_icon(&f.role), IC_YELLOW, &f.name)
@@ -936,17 +930,10 @@ impl App {
                         }
                     });
                 });
-                chrome::group(ui, &t, "Kategorien", |ui| {
+                chrome::group(ui, &t, "Tags", |ui| {
                     chrome::column(ui, |ui| {
-                        if chrome::small(
-                            ui,
-                            &t,
-                            ph::ENVELOPE_SIMPLE,
-                            IC_BLUE,
-                            "Als ungelesen markieren",
-                            true,
-                        )
-                        .clicked()
+                        if chrome::small(ui, &t, ph::ENVELOPE_SIMPLE, IC_BLUE, "Mark Unread", true)
+                            .clicked()
                         {
                             acts.push(Act::Patch(
                                 s.id,
@@ -956,14 +943,8 @@ impl App {
                                 },
                             ));
                         }
-                        let r = chrome::small(
-                            ui,
-                            &t,
-                            ph::TAG,
-                            IC_PURPLE,
-                            "Kategorisieren \u{E136}",
-                            true,
-                        );
+                        let r =
+                            chrome::small(ui, &t, ph::TAG, IC_PURPLE, "Categorize \u{E136}", true);
                         chrome::menu(&r, |ui| mail::category_menu(ui, &s, &mut acts));
                         if chrome::small(
                             ui,
@@ -971,9 +952,9 @@ impl App {
                             ph::FLAG,
                             IC_RED,
                             if s.is_flagged {
-                                "Als erledigt markieren"
+                                "Mark Complete"
                             } else {
-                                "Zur Nachverfolgung"
+                                "Follow Up"
                             },
                             true,
                         )
@@ -999,18 +980,18 @@ impl App {
                 .unwrap_or(false)
             {
                 let mut open = true;
-                egui::Window::new("Datei")
+                egui::Window::new("File")
                     .open(&mut open)
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 60.0))
                     .show(ui.ctx(), |ui| {
                         ui.set_min_width(220.0);
-                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Speichern unter…") {
+                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Save As…") {
                             ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
                             let name = format!("{}.eml", mail::safe_file_name(&s.subject));
                             if let Some(path) = rfd::FileDialog::new()
-                                .set_title("Speichern unter")
+                                .set_title("Save As")
                                 .set_file_name(name)
                                 .save_file()
                             {
@@ -1034,11 +1015,11 @@ impl App {
                                 }
                             }
                         }
-                        if chrome::menu_item(ui, ph::PRINTER, IC_GREY, "Drucken") {
+                        if chrome::menu_item(ui, ph::PRINTER, IC_GREY, "Print") {
                             ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
                             acts.push(Act::Print(s.id));
                         }
-                        if chrome::menu_item(ui, ph::X, IC_RED, "Schließen") {
+                        if chrome::menu_item(ui, ph::X, IC_RED, "Close") {
                             ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
                             close_requested = true;
                         }
@@ -1110,7 +1091,7 @@ pub(super) fn expand_groups(field: &str, groups: &[ContactGroup]) -> String {
 }
 
 /// Replace names without address by the matching contact or contact group
-/// ("Namen überprüfen").
+/// ("Check Names").
 fn resolve_names(field: &str, contacts: &[Contact], groups: &[ContactGroup]) -> String {
     expand_groups(field, groups)
         .split([';', ','])
@@ -1133,7 +1114,7 @@ fn resolve_names(field: &str, contacts: &[Contact], groups: &[ContactGroup]) -> 
         .join("; ")
 }
 
-/// Recipient field with suggestions from the address book ("AutoVervollständigen").
+/// Recipient field with suggestions from the address book ("AutoComplete").
 /// Enter or Tab takes the first suggestion, a click takes the clicked one.
 pub(super) fn address_field(
     ui: &mut egui::Ui,
@@ -1257,16 +1238,16 @@ mod tests {
     #[test]
     fn expands_contact_groups() {
         let groups = vec![ContactGroup {
-            name: "Projektteam".into(),
+            name: "Project Team".into(),
             members: vec!["Anna <anna@x.de>".into(), "bob@x.de".into()],
             ..Default::default()
         }];
         assert_eq!(
-            expand_groups("projektteam; carl@x.de", &groups),
+            expand_groups("project team; carl@x.de", &groups),
             "Anna <anna@x.de>; bob@x.de; carl@x.de"
         );
         assert_eq!(
-            resolve_names("Projektteam", &[], &groups),
+            resolve_names("Project Team", &[], &groups),
             "Anna <anna@x.de>; bob@x.de"
         );
     }
@@ -1279,8 +1260,8 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(
-            resolve_names("anna; bob@x.de; Unbekannt", &contacts, &[]),
-            "Anna Schmidt <anna@x.de>; bob@x.de; Unbekannt"
+            resolve_names("anna; bob@x.de; Unknown", &contacts, &[]),
+            "Anna Schmidt <anna@x.de>; bob@x.de; Unknown"
         );
     }
 }
@@ -1294,20 +1275,11 @@ fn group_names(
     contacts: &[Contact],
     groups: &[ContactGroup],
 ) {
-    chrome::group(ui, t, "Namen", |ui| {
-        if chrome::large(ui, t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", !c.sending).clicked() {
+    chrome::group(ui, t, "Names", |ui| {
+        if chrome::large(ui, t, ph::ADDRESS_BOOK, IC_BLUE, "Address Book", !c.sending).clicked() {
             c.address_book = Some(0);
         }
-        if chrome::large(
-            ui,
-            t,
-            ph::USER_CHECK,
-            IC_BLUE,
-            "Namen\nüberprüfen",
-            !c.sending,
-        )
-        .clicked()
-        {
+        if chrome::large(ui, t, ph::USER_CHECK, IC_BLUE, "Check\nNames", !c.sending).clicked() {
             c.to = resolve_names(&c.to, contacts, groups);
             c.cc = resolve_names(&c.cc, contacts, groups);
             c.bcc = resolve_names(&c.bcc, contacts, groups);
@@ -1316,16 +1288,16 @@ fn group_names(
 }
 
 fn group_basic_text(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
-    chrome::group(ui, t, "Basistext", |ui| {
+    chrome::group(ui, t, "Basic Text", |ui| {
         chrome::column(ui, |ui| {
             ui.horizontal(|ui| {
                 for (icon, marker, tip) in [
-                    (ph::TEXT_B, super::html::BOLD, "Fett (Strg+B)"),
-                    (ph::TEXT_ITALIC, super::html::ITALIC, "Kursiv (Strg+I)"),
+                    (ph::TEXT_B, super::html::BOLD, "Bold (Ctrl+B)"),
+                    (ph::TEXT_ITALIC, super::html::ITALIC, "Italic (Ctrl+I)"),
                     (
                         ph::TEXT_UNDERLINE,
                         super::html::UNDERLINE,
-                        "Unterstrichen (Strg+U)",
+                        "Underline (Ctrl+U)",
                     ),
                 ] {
                     if chrome::small(ui, t, icon, t.text, "", !c.sending)
@@ -1340,7 +1312,7 @@ fn group_basic_text(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer
             });
             ui.horizontal(|ui| {
                 if chrome::small(ui, t, ph::LIST_BULLETS, t.text, "", !c.sending)
-                    .on_hover_text("Aufzählungszeichen")
+                    .on_hover_text("Bullets")
                     .clicked()
                 {
                     super::html::toggle_list(&mut c.body, c.sel, false);
@@ -1348,7 +1320,7 @@ fn group_basic_text(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer
                     c.changed = true;
                 }
                 if chrome::small(ui, t, ph::LIST_NUMBERS, t.text, "", !c.sending)
-                    .on_hover_text("Nummerierung")
+                    .on_hover_text("Numbering")
                     .clicked()
                 {
                     super::html::toggle_list(&mut c.body, c.sel, true);
@@ -1361,7 +1333,7 @@ fn group_basic_text(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer
 }
 
 fn group_tags(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
-    chrome::group(ui, t, "Kategorien", |ui| {
+    chrome::group(ui, t, "Tags", |ui| {
         chrome::column(ui, |ui| {
             let high = c.importance == "high";
             if chrome::small(
@@ -1370,9 +1342,9 @@ fn group_tags(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
                 "!",
                 IC_RED,
                 if high {
-                    "Wichtigkeit: hoch  \u{E182}"
+                    "High Importance  \u{E182}"
                 } else {
-                    "Wichtigkeit: hoch"
+                    "High Importance"
                 },
                 true,
             )
@@ -1387,9 +1359,9 @@ fn group_tags(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
                 ph::ARROW_DOWN,
                 IC_BLUE,
                 if low {
-                    "Wichtigkeit: niedrig  \u{E182}"
+                    "Low Importance  \u{E182}"
                 } else {
-                    "Wichtigkeit: niedrig"
+                    "Low Importance"
                 },
                 true,
             )
@@ -1402,18 +1374,15 @@ fn group_tags(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
 }
 
 fn attach_button(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
-    if chrome::large(ui, t, ph::PAPERCLIP, IC_BLUE, "Datei\nanfügen", !c.sending).clicked() {
-        if let Some(files) = rfd::FileDialog::new()
-            .set_title("Datei einfügen")
-            .pick_files()
-        {
+    if chrome::large(ui, t, ph::PAPERCLIP, IC_BLUE, "Attach\nFile", !c.sending).clicked() {
+        if let Some(files) = rfd::FileDialog::new().set_title("Insert File").pick_files() {
             for f in files {
                 match std::fs::read(&f) {
                     Ok(data) => c.attachments.push(NewAttachment {
                         name: f
                             .file_name()
                             .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "Anlage".into()),
+                            .unwrap_or_else(|| "Attachment".into()),
                         mime: mime_for(&f),
                         data,
                     }),
@@ -1431,7 +1400,7 @@ fn signature_button(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer
         t,
         ph::SIGNATURE,
         IC_BLUE,
-        "Signatur",
+        "Signature",
         !signature.is_empty(),
     )
     .clicked()
@@ -1465,7 +1434,7 @@ fn vcard_escape(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
-/// Contact as vCard 3.0 ("Visitenkarte" attachment).
+/// Contact as vCard 3.0 ("Business Card" attachment).
 pub(super) fn vcard(c: &Contact) -> String {
     let (first, last) = c
         .display_name
@@ -1526,10 +1495,10 @@ mod more_tests {
     #[test]
     fn inserts_at_cursor() {
         let mut c = Composer::blank(1);
-        c.body = "Hallo Welt".into();
+        c.body = "Hello World".into();
         c.sel = (6, 6);
-        insert_at_cursor(&mut c, "liebe ");
-        assert_eq!(c.body, "Hallo liebe Welt");
-        assert_eq!(c.sel, (12, 12));
+        insert_at_cursor(&mut c, "dear ");
+        assert_eq!(c.body, "Hello dear World");
+        assert_eq!(c.sel, (11, 11));
     }
 }

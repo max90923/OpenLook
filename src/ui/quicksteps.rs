@@ -1,5 +1,5 @@
-//! QuickSteps ("Schnelle Schritte"): several actions on the selected
-//! message with one click, as in Outlook's Start ribbon.
+//! Quick Steps: several actions on the selected message with one click,
+//! as in Outlook's Home ribbon.
 
 use eframe::egui::{self, RichText};
 use egui_phosphor::regular as ph;
@@ -40,23 +40,19 @@ pub struct QuickStep {
 type ActionKind = (&'static str, fn() -> StepAction);
 
 const ACTION_KINDS: [ActionKind; 11] = [
-    ("In Ordner verschieben", || StepAction::MoveTo {
-        folder: None,
-    }),
-    ("Als gelesen markieren", || StepAction::MarkRead),
-    ("Als ungelesen markieren", || StepAction::MarkUnread),
-    ("Zur Nachverfolgung kennzeichnen", || StepAction::Flag),
-    ("Kennzeichnung löschen", || StepAction::ClearFlag),
-    ("Kategorisieren", || StepAction::Category {
+    ("Move to folder", || StepAction::MoveTo { folder: None }),
+    ("Mark as read", || StepAction::MarkRead),
+    ("Mark as unread", || StepAction::MarkUnread),
+    ("Flag message", || StepAction::Flag),
+    ("Clear flags on message", || StepAction::ClearFlag),
+    ("Categorize message", || StepAction::Category {
         name: String::new(),
     }),
-    ("Nachricht löschen", || StepAction::Delete),
-    ("Antworten", || StepAction::Reply),
-    ("Allen antworten", || StepAction::ReplyAll),
-    ("Weiterleiten an", || StepAction::ForwardTo {
-        to: String::new(),
-    }),
-    ("Neue Nachricht an", || StepAction::NewMailTo {
+    ("Delete message", || StepAction::Delete),
+    ("Reply", || StepAction::Reply),
+    ("Reply All", || StepAction::ReplyAll),
+    ("Forward to", || StepAction::ForwardTo { to: String::new() }),
+    ("New Message to", || StepAction::NewMailTo {
         to: String::new(),
     }),
 ];
@@ -79,7 +75,7 @@ impl StepAction {
         ACTION_KINDS[idx].0
     }
 
-    /// Needs settings before it can run (Outlook's "Ersteinrichtung").
+    /// Needs settings before it can run (Outlook's "First Time Setup").
     fn incomplete(&self) -> bool {
         match self {
             StepAction::MoveTo { folder } => folder.is_none(),
@@ -109,23 +105,23 @@ impl QuickStep {
     }
 }
 
-/// Outlook's default QuickSteps.
+/// Outlook's default Quick Steps.
 pub fn defaults() -> Vec<QuickStep> {
     vec![
         QuickStep {
-            name: "Verschieben in: ?".into(),
+            name: "Move to: ?".into(),
             actions: vec![StepAction::MoveTo { folder: None }],
         },
         QuickStep {
-            name: "An Vorgesetzte(n)".into(),
+            name: "To Manager".into(),
             actions: vec![StepAction::ForwardTo { to: String::new() }],
         },
         QuickStep {
-            name: "Team-E-Mail".into(),
+            name: "Team Email".into(),
             actions: vec![StepAction::NewMailTo { to: String::new() }],
         },
         QuickStep {
-            name: "Erledigt".into(),
+            name: "Done".into(),
             actions: vec![
                 StepAction::MarkRead,
                 StepAction::ClearFlag,
@@ -133,7 +129,7 @@ pub fn defaults() -> Vec<QuickStep> {
             ],
         },
         QuickStep {
-            name: "Antworten und löschen".into(),
+            name: "Reply & Delete".into(),
             actions: vec![StepAction::Reply, StepAction::Delete],
         },
     ]
@@ -155,7 +151,7 @@ pub struct QuickStepsWin {
 }
 
 impl App {
-    /// Ribbon gallery: two columns of three steps, plus "Neu erstellen".
+    /// Ribbon gallery: two columns of three steps, plus "Create New".
     pub(super) fn quicksteps_gallery(&mut self, ui: &mut egui::Ui, selected: Option<i64>) {
         let t = self.t;
         let steps = quicksteps_of(self);
@@ -173,10 +169,10 @@ impl App {
             });
         }
         chrome::column(ui, |ui| {
-            if chrome::small(ui, &t, ph::PLUS, IC_BLUE, "Neu erstellen", true).clicked() {
+            if chrome::small(ui, &t, ph::PLUS, IC_BLUE, "Create New", true).clicked() {
                 let mut steps = quicksteps_of(self);
                 steps.push(QuickStep {
-                    name: "Neuer QuickStep".into(),
+                    name: "New Quick Step".into(),
                     actions: vec![StepAction::MoveTo { folder: None }],
                 });
                 let sel = steps.len() - 1;
@@ -186,7 +182,7 @@ impl App {
                     run_after: None,
                 }));
             }
-            if chrome::small(ui, &t, ph::GEAR, IC_BLUE, "Verwalten", true).clicked() {
+            if chrome::small(ui, &t, ph::GEAR, IC_BLUE, "Manage", true).clicked() {
                 self.open_window(Win::QuickSteps(QuickStepsWin {
                     steps: quicksteps_of(self),
                     sel: 0,
@@ -200,7 +196,14 @@ impl App {
     pub(super) fn quicksteps_button(&mut self, ui: &mut egui::Ui, selected: Option<i64>) {
         let t = self.t;
         let steps = quicksteps_of(self);
-        let r = chrome::large(ui, &t, ph::LIGHTNING, IC_BLUE, "QuickSteps\n\u{E136}", true);
+        let r = chrome::large(
+            ui,
+            &t,
+            ph::LIGHTNING,
+            IC_BLUE,
+            "Quick Steps\n\u{E136}",
+            true,
+        );
         let mut run = None;
         let mut manage = false;
         chrome::menu(&r, |ui| {
@@ -217,7 +220,7 @@ impl App {
                 }
             }
             ui.separator();
-            if chrome::menu_item(ui, ph::GEAR, IC_BLUE, "QuickSteps verwalten…") {
+            if chrome::menu_item(ui, ph::GEAR, IC_BLUE, "Manage Quick Steps…") {
                 manage = true;
             }
         });
@@ -262,7 +265,7 @@ impl App {
         let actions = step.actions.clone();
         let name = step.name.clone();
         self.spawn(
-            Some(&format!("QuickStep \"{name}\" ausgeführt.")),
+            Some(&format!("Quick Step \"{name}\" completed.")),
             move |st, _| async move {
                 for a in actions {
                     let cats = db::get_message(&st.db(), message)?
@@ -353,9 +356,9 @@ impl App {
         let mut ok = false;
         let mut cancel = false;
         let title = if w.run_after.is_some() {
-            "Ersteinrichtung"
+            "First Time Setup"
         } else {
-            "QuickSteps verwalten"
+            "Manage Quick Steps"
         };
         let closed = chrome::native_window(ctx, vid, title, [820.0, 520.0], &t, |ui| {
             egui::TopBottomPanel::bottom("qs_buttons")
@@ -363,7 +366,7 @@ impl App {
                 .show_inside(ui, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .add_sized([90.0, 26.0], egui::Button::new("Abbrechen"))
+                            .add_sized([90.0, 26.0], egui::Button::new("Cancel"))
                             .clicked()
                         {
                             cancel = true;
@@ -372,7 +375,7 @@ impl App {
                             .add_sized(
                                 [90.0, 26.0],
                                 egui::Button::new(if w.run_after.is_some() {
-                                    "Speichern"
+                                    "Save"
                                 } else {
                                     "OK"
                                 }),
@@ -399,9 +402,9 @@ impl App {
                         }
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button(format!("{}  Neu", ph::PLUS)).clicked() {
+                            if ui.button(format!("{}  New", ph::PLUS)).clicked() {
                                 w.steps.push(QuickStep {
-                                    name: "Neuer QuickStep".into(),
+                                    name: "New Quick Step".into(),
                                     actions: vec![StepAction::MarkRead],
                                 });
                                 w.sel = w.steps.len() - 1;
@@ -411,7 +414,7 @@ impl App {
                                     !w.steps.is_empty(),
                                     egui::Button::new((
                                         RichText::new(ph::X).color(IC_RED),
-                                        "Löschen",
+                                        "Delete",
                                     )),
                                 )
                                 .clicked()
@@ -420,7 +423,7 @@ impl App {
                                 w.sel = w.sel.saturating_sub(1);
                             }
                         });
-                        if ui.button("Auf Standard zurücksetzen").clicked() {
+                        if ui.button("Reset to Defaults").clicked() {
                             w.steps = defaults();
                             w.sel = 0;
                         }
@@ -429,7 +432,7 @@ impl App {
             egui::CentralPanel::default().frame(egui::Frame::new().inner_margin(egui::Margin::same(16))).show_inside(ui, |ui| {
                 let Some(step) = w.steps.get_mut(w.sel) else { return };
                 if w.run_after.is_some() {
-                    ui.label("Wählen Sie die Einstellungen für diesen QuickStep. Sie werden beim ersten Verwenden gespeichert.");
+                    ui.label("Choose the settings for this Quick Step. They are saved the first time you use it.");
                     ui.add_space(8.0);
                 }
                 ui.horizontal(|ui| {
@@ -437,7 +440,7 @@ impl App {
                     ui.add(egui::TextEdit::singleline(&mut step.name).desired_width(360.0));
                 });
                 ui.add_space(8.0);
-                ui.label(RichText::new("Aktionen").strong());
+                ui.label(RichText::new("Actions").strong());
                 let mut remove = None;
                 for (i, a) in step.actions.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
@@ -453,7 +456,7 @@ impl App {
                                 let text = folder
                                     .and_then(|id| folders.iter().find(|f| f.id == id))
                                     .map(|f| format!("{} ({})", f.name, accounts.iter().find(|x| x.id == f.account_id).map(|x| x.email.as_str()).unwrap_or("")))
-                                    .unwrap_or_else(|| "Ordner auswählen".into());
+                                    .unwrap_or_else(|| "Choose folder".into());
                                 egui::ComboBox::from_id_salt(("qs_folder", i)).width(300.0).selected_text(text).show_ui(ui, |ui| {
                                     for f in &folders {
                                         let acc = accounts.iter().find(|x| x.id == f.account_id).map(|x| x.email.as_str()).unwrap_or("");
@@ -462,14 +465,14 @@ impl App {
                                 });
                             }
                             StepAction::Category { name } => {
-                                egui::ComboBox::from_id_salt(("qs_cat", i)).selected_text(if name.is_empty() { "Kategorie auswählen" } else { name.as_str() }).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt(("qs_cat", i)).selected_text(if name.is_empty() { "Choose category" } else { name.as_str() }).show_ui(ui, |ui| {
                                     for (c, _) in CATEGORIES {
                                         ui.selectable_value(name, c.to_string(), c);
                                     }
                                 });
                             }
                             StepAction::ForwardTo { to } | StepAction::NewMailTo { to } => {
-                                ui.add(egui::TextEdit::singleline(to).hint_text("E-Mail-Adresse").desired_width(260.0));
+                                ui.add(egui::TextEdit::singleline(to).hint_text("Email address").desired_width(260.0));
                                 if let Some(c) = contacts.iter().find(|c| !to.is_empty() && !to.contains('@') && c.display_name.to_lowercase().contains(&to.to_lowercase()) && !c.email.is_empty()) {
                                     if ui.small_button(format!("{} <{}>", c.display_name, c.email)).clicked() {
                                         *to = format!("{} <{}>", c.display_name, c.email);
@@ -478,7 +481,7 @@ impl App {
                             }
                             _ => {}
                         }
-                        if ui.add(egui::Button::new(RichText::new(ph::X).color(IC_RED)).frame(false)).on_hover_text("Aktion entfernen").clicked() {
+                        if ui.add(egui::Button::new(RichText::new(ph::X).color(IC_RED)).frame(false)).on_hover_text("Remove action").clicked() {
                             remove = Some(i);
                         }
                     });
@@ -486,18 +489,18 @@ impl App {
                 if let Some(i) = remove {
                     step.actions.remove(i);
                 }
-                if ui.button(format!("{}  Aktion hinzufügen", ph::PLUS)).clicked() {
+                if ui.button(format!("{}  Add Action", ph::PLUS)).clicked() {
                     step.actions.push(StepAction::MarkRead);
                 }
                 if step.incomplete() {
                     ui.add_space(6.0);
-                    ui.label(RichText::new(format!("{}  Bitte alle Einstellungen ausfüllen.", ph::WARNING)).color(t.danger));
+                    ui.label(RichText::new(format!("{}  Please fill in all settings.", ph::WARNING)).color(t.danger));
                 }
             });
         });
         if ok {
             if w.run_after.is_some() && w.steps.get(w.sel).is_some_and(QuickStep::incomplete) {
-                self.toast("Bitte alle Einstellungen des QuickSteps ausfüllen.", true);
+                self.toast("Please fill in all settings of the Quick Step.", true);
                 return false;
             }
             self.save_setting(

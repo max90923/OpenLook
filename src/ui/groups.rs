@@ -1,5 +1,5 @@
-//! Kontaktgruppen (distribution lists): shown in the People module, edited
-//! in the "Kontaktgruppe" window and expanded in recipient fields.
+//! Contact groups (distribution lists): shown in the People module, edited
+//! in the "Contact Group" window and expanded in recipient fields.
 
 use eframe::egui::{self, RichText, Sense};
 use egui_phosphor::regular as ph;
@@ -72,7 +72,7 @@ impl App {
             groups.remove(index);
             self.people.selected_group = None;
             self.save_groups(groups);
-            self.toast("Kontaktgruppe gelöscht.", false);
+            self.toast("Contact group deleted.", false);
         }
     }
 
@@ -119,7 +119,7 @@ impl App {
             ui.painter().text(
                 rect.left_center() + egui::vec2(54.0, 9.0),
                 egui::Align2::LEFT_CENTER,
-                format!("Kontaktgruppe · {} Mitglieder", g.members.len()),
+                format!("Contact Group · {} Members", g.members.len()),
                 egui::FontId::proportional(12.0),
                 t.text_weak,
             );
@@ -156,12 +156,12 @@ impl App {
             ui.vertical(|ui| {
                 ui.add_space(8.0);
                 ui.label(RichText::new(&g.name).size(26.0));
-                ui.label(RichText::new("Kontaktgruppe").color(t.text_weak));
+                ui.label(RichText::new("Contact Group").color(t.text_weak));
                 ui.horizontal(|ui| {
                     if ui
                         .add(egui::Button::new((
                             RichText::new(ph::ENVELOPE_SIMPLE).color(IC_BLUE),
-                            "E-Mail senden",
+                            "Send Email",
                         )))
                         .clicked()
                     {
@@ -170,7 +170,7 @@ impl App {
                     if ui
                         .add(egui::Button::new((
                             RichText::new(ph::PENCIL_SIMPLE).color(IC_BLUE),
-                            "Bearbeiten",
+                            "Edit",
                         )))
                         .clicked()
                     {
@@ -181,7 +181,7 @@ impl App {
         });
         ui.add_space(20.0);
         ui.label(
-            RichText::new(format!("Mitglieder ({})", g.members.len()))
+            RichText::new(format!("Members ({})", g.members.len()))
                 .size(15.0)
                 .color(t.accent),
         );
@@ -206,42 +206,35 @@ impl App {
         let t = self.t;
         let contacts = self.data.contacts.clone();
         let title = format!(
-            "{} - Kontaktgruppe",
+            "{} - Contact Group",
             if ed.g.name.trim().is_empty() {
-                "Unbenannt"
+                "Untitled"
             } else {
                 ed.g.name.trim()
             }
         );
         let (mut save, mut delete, mut mail) = (false, false, false);
         let closed = chrome::native_window(ctx, vid, &title, [720.0, 560.0], &t, |ui| {
-            chrome::item_ribbon(ui, &t, "Kontaktgruppe", |ui| {
-                chrome::group(ui, &t, "Aktionen", |ui| {
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::FLOPPY_DISK,
-                        IC_PURPLE,
-                        "Speichern &\nschließen",
-                        true,
-                    )
-                    .clicked()
+            chrome::item_ribbon(ui, &t, "Contact Group", |ui| {
+                chrome::group(ui, &t, "Actions", |ui| {
+                    if chrome::large(ui, &t, ph::FLOPPY_DISK, IC_PURPLE, "Save &\nClose", true)
+                        .clicked()
                     {
                         save = true;
                     }
-                    if chrome::large(ui, &t, ph::X, IC_RED, "Gruppe\nlöschen", ed.index.is_some())
+                    if chrome::large(ui, &t, ph::X, IC_RED, "Delete\nGroup", ed.index.is_some())
                         .clicked()
                     {
                         delete = true;
                     }
                 });
-                chrome::group(ui, &t, "Mitglieder", |ui| {
+                chrome::group(ui, &t, "Members", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::USER_MINUS,
                         IC_RED,
-                        "Mitglied\nentfernen",
+                        "Remove\nMember",
                         ed.selected.is_some(),
                     )
                     .clicked()
@@ -251,13 +244,13 @@ impl App {
                         }
                     }
                 });
-                chrome::group(ui, &t, "Kommunizieren", |ui| {
+                chrome::group(ui, &t, "Communicate", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::ENVELOPE_SIMPLE,
                         IC_BLUE,
-                        "E-Mail",
+                        "Email",
                         !ed.g.members.is_empty(),
                     )
                     .clicked()
@@ -275,7 +268,7 @@ impl App {
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        ui.add_sized([150.0, 24.0], egui::Label::new("Mitglieder hinzufügen:"));
+                        ui.add_sized([150.0, 24.0], egui::Label::new("Add Members:"));
                         super::compose::address_field(
                             ui,
                             "group_add",
@@ -284,7 +277,7 @@ impl App {
                             &[],
                             380.0,
                         );
-                        if ui.button("Hinzufügen").clicked() && !ed.add.trim().is_empty() {
+                        if ui.button("Add").clicked() && !ed.add.trim().is_empty() {
                             add_members(&mut ed.g, &ed.add);
                             ed.add.clear();
                         }
@@ -304,7 +297,7 @@ impl App {
                             );
                         }
                     };
-                    header(ui, "Name", "E-Mail");
+                    header(ui, "Name", "Email");
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -334,7 +327,7 @@ impl App {
                             if ed.g.members.is_empty() {
                                 ui.add_space(12.0);
                                 ui.label(
-                                    RichText::new("Diese Gruppe hat noch keine Mitglieder.")
+                                    RichText::new("This group has no members yet.")
                                         .color(t.text_weak),
                                 );
                             }
@@ -350,7 +343,7 @@ impl App {
             }
             ed.g.name = ed.g.name.trim().to_string();
             if ed.g.name.is_empty() {
-                self.toast("Bitte einen Namen für die Kontaktgruppe eingeben.", true);
+                self.toast("Please enter a name for the contact group.", true);
                 return false;
             }
             let mut groups = self.data.groups.clone();
@@ -360,7 +353,7 @@ impl App {
             }
             groups.sort_by_key(|g| g.name.to_lowercase());
             self.save_groups(groups);
-            self.toast("Kontaktgruppe gespeichert.", false);
+            self.toast("Contact group saved.", false);
             return true;
         }
         if delete {
