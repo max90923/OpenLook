@@ -48,7 +48,7 @@ pub struct MailView {
     favorites_closed: bool,
     expanded: HashSet<String>,
     folder_dialog: Option<FolderDialog>,
-    /// "Suchen" tab: Optimieren filters.
+    /// "Search" tab: Refine filters.
     f_attach: bool,
     f_flagged: bool,
     f_important: bool,
@@ -265,7 +265,7 @@ impl App {
                     if self.mail.selected == Some(id) {
                         self.select_next(id);
                     }
-                    self.spawn(Some("Element verschoben."), move |st, _| async move {
+                    self.spawn(Some("Item moved."), move |st, _| async move {
                         providers::move_message(&st, id, folder).await
                     });
                 }
@@ -296,7 +296,7 @@ impl App {
                         .collect()
                     };
                     self.spawn(
-                        Some("Alle Elemente als gelesen markiert."),
+                        Some("All items marked as read."),
                         move |st, _| async move {
                             for id in ids {
                                 providers::patch_message(
@@ -332,7 +332,7 @@ impl App {
                 Act::OpenAttachment(a) => {
                     let res = db::attachment_data(&self.st.db(), a.id).and_then(|data| {
                         let dir =
-                            std::env::temp_dir().join(format!("openlook-anlagen-{}", a.message_id));
+                            std::env::temp_dir().join(format!("openlook-attachments-{}", a.message_id));
                         std::fs::create_dir_all(&dir)?;
                         let path = dir.join(safe_file_name(&a.name));
                         std::fs::write(&path, data)?;
@@ -341,27 +341,27 @@ impl App {
                     match res {
                         Ok(path) => super::open_external(&path.to_string_lossy()),
                         Err(e) => {
-                            self.toast(format!("Anlage konnte nicht geöffnet werden: {e:#}"), true)
+                            self.toast(format!("Could not open the attachment: {e:#}"), true)
                         }
                     }
                 }
                 Act::SaveAttachment(a) => {
                     if let Some(path) = rfd::FileDialog::new()
-                        .set_title("Anlage speichern")
+                        .set_title("Save Attachment")
                         .set_file_name(safe_file_name(&a.name))
                         .save_file()
                     {
                         let res = db::attachment_data(&self.st.db(), a.id)
                             .and_then(|d| Ok(std::fs::write(&path, d)?));
                         match res {
-                            Ok(()) => self.toast(format!("Gespeichert: {}", path.display()), false),
+                            Ok(()) => self.toast(format!("Saved: {}", path.display()), false),
                             Err(e) => self.toast(format!("{e:#}"), true),
                         }
                     }
                 }
                 Act::SaveAllAttachments(id) => {
                     if let Some(dir) = rfd::FileDialog::new()
-                        .set_title("Alle Anlagen speichern")
+                        .set_title("Save All Attachments")
                         .pick_folder()
                     {
                         let res = db::attachments_with_data(&self.st.db(), id).and_then(|list| {
@@ -372,7 +372,7 @@ impl App {
                         });
                         match res {
                             Ok(n) => self.toast(
-                                format!("{n} Anlage(n) gespeichert in {}", dir.display()),
+                                format!("{n} attachment(s) saved to {}", dir.display()),
                                 false,
                             ),
                             Err(e) => self.toast(format!("{e:#}"), true),
@@ -437,7 +437,7 @@ impl App {
                     .map(|x| x.id)
                     .collect();
                     self.mail.selected = None;
-                    self.spawn(Some("Die Unterhaltung wird ignoriert; neue Nachrichten landen in \"Gelöschte Elemente\"."), move |st, _| async move {
+                    self.spawn(Some("The conversation is being ignored; new messages will be moved to \"Deleted Items\"."), move |st, _| async move {
                         for id in ids {
                             providers::delete_message(&st, id).await?;
                         }
@@ -470,11 +470,11 @@ impl App {
                     };
                     let ids = crate::conversation::redundant(&candidates);
                     if ids.is_empty() {
-                        self.toast("Es wurden keine Nachrichten aufgeräumt.", false);
+                        self.toast("No messages were cleaned up.", false);
                         continue;
                     }
                     let msg = format!(
-                        "{} redundante Nachricht(en) nach \"Gelöschte Elemente\" verschoben.",
+                        "{} redundant message(s) moved to \"Deleted Items\".",
                         ids.len()
                     );
                     if ids.contains(&id) {
@@ -569,8 +569,8 @@ impl App {
         let sel = self.mail.current.as_ref().map(|m| m.summary.clone());
         let has = sel.is_some();
         let mut acts = vec![];
-        chrome::group(ui, &t, "Neu", |ui| {
-            if chrome::large(ui, &t, ph::ENVELOPE_SIMPLE, IC_BLUE, "Neue\nE-Mail", true).clicked() {
+        chrome::group(ui, &t, "New", |ui| {
+            if chrome::large(ui, &t, ph::ENVELOPE_SIMPLE, IC_BLUE, "New\nEmail", true).clicked() {
                 acts.push(Act::Compose(ComposeKind::New));
             }
             let r = chrome::large(
@@ -578,49 +578,49 @@ impl App {
                 &t,
                 ph::FILE_PLUS,
                 IC_YELLOW,
-                "Neue\nElemente \u{E136}",
+                "New\nItems \u{E136}",
                 true,
             );
             chrome::menu(&r, |ui| {
-                if chrome::menu_item(ui, ph::ENVELOPE_SIMPLE, IC_BLUE, "E-Mail-Nachricht") {
+                if chrome::menu_item(ui, ph::ENVELOPE_SIMPLE, IC_BLUE, "E-mail Message") {
                     acts.push(Act::Compose(ComposeKind::New));
                 }
-                if chrome::menu_item(ui, ph::CALENDAR_BLANK, IC_BLUE, "Termin") {
+                if chrome::menu_item(ui, ph::CALENDAR_BLANK, IC_BLUE, "Appointment") {
                     self.new_event_now();
                 }
-                if chrome::menu_item(ui, ph::USER, IC_BLUE, "Kontakt") {
+                if chrome::menu_item(ui, ph::USER, IC_BLUE, "Contact") {
                     self.new_contact();
                 }
-                if chrome::menu_item(ui, ph::CHECK_SQUARE_OFFSET, IC_GREEN, "Aufgabe") {
+                if chrome::menu_item(ui, ph::CHECK_SQUARE_OFFSET, IC_GREEN, "Task") {
                     self.new_task();
                 }
             });
         });
-        chrome::group(ui, &t, "Löschen", |ui| {
+        chrome::group(ui, &t, "Delete", |ui| {
             chrome::column(ui, |ui| {
-                if chrome::small(ui, &t, ph::PROHIBIT, IC_GREY, "Ignorieren", has).clicked() {
+                if chrome::small(ui, &t, ph::PROHIBIT, IC_GREY, "Ignore", has).clicked() {
                     acts.push(Act::Ignore(sel.as_ref().unwrap().id));
                 }
-                let r = chrome::small(ui, &t, ph::BROOM, IC_BLUE, "Aufräumen \u{E136}", has);
+                let r = chrome::small(ui, &t, ph::BROOM, IC_BLUE, "Clean Up \u{E136}", has);
                 if let Some(m) = &sel {
                     chrome::menu(&r, |ui| {
-                        if chrome::menu_item(ui, ph::BROOM, IC_BLUE, "Unterhaltung aufräumen") {
+                        if chrome::menu_item(ui, ph::BROOM, IC_BLUE, "Clean Up Conversation") {
                             acts.push(Act::CleanUp(m.id, false));
                         }
-                        if chrome::menu_item(ui, ph::BROOM, IC_BLUE, "Ordner aufräumen") {
+                        if chrome::menu_item(ui, ph::BROOM, IC_BLUE, "Clean Up Folder") {
                             acts.push(Act::CleanUp(m.id, true));
                         }
                     });
                 }
-                let r = chrome::small(ui, &t, ph::PROHIBIT, IC_RED, "Junk-E-Mail \u{E136}", has);
+                let r = chrome::small(ui, &t, ph::PROHIBIT, IC_RED, "Junk \u{E136}", has);
                 chrome::menu(&r, |ui| {
-                    if chrome::menu_item(ui, ph::PROHIBIT, IC_RED, "In Junk-E-Mail verschieben") {
+                    if chrome::menu_item(ui, ph::PROHIBIT, IC_RED, "Move to Junk Email") {
                         let m = sel.as_ref().unwrap();
                         if let Some(f) = self.folder_for_role(m.account_id, "junk") {
                             acts.push(Act::Move(m.id, f));
                         }
                     }
-                    if chrome::menu_item(ui, ph::TRAY, IC_BLUE, "Keine Junk-E-Mail") {
+                    if chrome::menu_item(ui, ph::TRAY, IC_BLUE, "Not Junk") {
                         let m = sel.as_ref().unwrap();
                         if let Some(f) = self.folder_for_role(m.account_id, "inbox") {
                             acts.push(Act::Move(m.id, f));
@@ -628,24 +628,24 @@ impl App {
                     }
                 });
             });
-            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", has).clicked() {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Delete", has).clicked() {
                 acts.push(Act::Delete(sel.as_ref().unwrap().id));
             }
-            if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archivieren", has).clicked() {
+            if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archive", has).clicked() {
                 let m = sel.as_ref().unwrap();
                 match self.folder_for_role(m.account_id, "archive") {
                     Some(f) => acts.push(Act::Move(m.id, f)),
                     None => acts.push(Act::Toast(
-                        "Für dieses Konto ist kein Archivordner vorhanden.".into(),
+                        "There is no Archive folder for this account.".into(),
                     )),
                 }
             }
         });
-        chrome::group(ui, &t, "Antworten", |ui| {
+        chrome::group(ui, &t, "Respond", |ui| {
             for (icon, label, kind) in [
-                (ph::ARROW_BEND_UP_LEFT, "Antworten", 0),
-                (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Allen\nantworten", 1),
-                (ph::ARROW_BEND_UP_RIGHT, "Weiterleiten", 2),
+                (ph::ARROW_BEND_UP_LEFT, "Reply", 0),
+                (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Reply\nAll", 1),
+                (ph::ARROW_BEND_UP_RIGHT, "Forward", 2),
             ] {
                 if chrome::large(ui, &t, icon, IC_PURPLE, label, has).clicked() {
                     let id = sel.as_ref().unwrap().id;
@@ -657,37 +657,37 @@ impl App {
                 }
             }
             chrome::column(ui, |ui| {
-                if chrome::small(ui, &t, ph::USERS_THREE, IC_BLUE, "Besprechung", has).clicked() {
+                if chrome::small(ui, &t, ph::USERS_THREE, IC_BLUE, "Meeting", has).clicked() {
                     acts.push(Act::MeetingReply(sel.as_ref().unwrap().id));
                 }
             });
         });
         // Like Outlook, the gallery collapses into one button when space is short.
         let narrow = ui.ctx().content_rect().width() < 1650.0;
-        chrome::group(ui, &t, "QuickSteps", |ui| {
+        chrome::group(ui, &t, "Quick Steps", |ui| {
             if narrow {
                 self.quicksteps_button(ui, sel.as_ref().map(|m| m.id));
             } else {
                 self.quicksteps_gallery(ui, sel.as_ref().map(|m| m.id));
             }
         });
-        chrome::group(ui, &t, "Verschieben", |ui| {
+        chrome::group(ui, &t, "Move", |ui| {
             let r = chrome::large(
                 ui,
                 &t,
                 ph::FOLDER_SIMPLE,
                 IC_YELLOW,
-                "Verschieben\n\u{E136}",
+                "Move\n\u{E136}",
                 has,
             );
             if let Some(m) = &sel {
                 chrome::menu(&r, |ui| self.move_menu(ui, m, &mut acts));
             }
             chrome::column(ui, |ui| {
-                let r = chrome::small(ui, &t, ph::FUNNEL_SIMPLE, IC_BLUE, "Regeln \u{E136}", true);
+                let r = chrome::small(ui, &t, ph::FUNNEL_SIMPLE, IC_BLUE, "Rules \u{E136}", true);
                 chrome::menu(&r, |ui| {
                     if let Some(m) = &sel {
-                        if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Regel erstellen…") {
+                        if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Create Rule…") {
                             acts.push(Act::CreateRule(m.id));
                         }
                     }
@@ -695,17 +695,17 @@ impl App {
                         ui,
                         ph::FUNNEL_SIMPLE,
                         IC_BLUE,
-                        "Regeln und Benachrichtigungen verwalten…",
+                        "Manage Rules & Alerts…",
                     ) {
                         self.open_rules(None);
                     }
                 });
-                if chrome::small(ui, &t, ph::PRINTER, IC_GREY, "Drucken", has).clicked() {
+                if chrome::small(ui, &t, ph::PRINTER, IC_GREY, "Print", has).clicked() {
                     acts.push(Act::Print(sel.as_ref().unwrap().id));
                 }
             });
         });
-        chrome::group(ui, &t, "Kategorien", |ui| {
+        chrome::group(ui, &t, "Tags", |ui| {
             chrome::column(ui, |ui| {
                 let read = sel.as_ref().is_some_and(|m| m.is_read);
                 if chrome::small(
@@ -717,7 +717,7 @@ impl App {
                         ph::ENVELOPE_SIMPLE_OPEN
                     },
                     IC_BLUE,
-                    "Ungelesen/Gelesen",
+                    "Unread/ Read",
                     has,
                 )
                 .clicked()
@@ -731,14 +731,14 @@ impl App {
                         },
                     ));
                 }
-                let r = chrome::small(ui, &t, ph::TAG, IC_PURPLE, "Kategorisieren \u{E136}", has);
+                let r = chrome::small(ui, &t, ph::TAG, IC_PURPLE, "Categorize \u{E136}", has);
                 if let Some(m) = &sel {
                     chrome::menu(&r, |ui| category_menu(ui, m, &mut acts));
                 }
-                let r = chrome::small(ui, &t, ph::FLAG, IC_RED, "Zur Nachverfolgung \u{E136}", has);
+                let r = chrome::small(ui, &t, ph::FLAG, IC_RED, "Follow Up \u{E136}", has);
                 if let Some(m) = &sel {
                     chrome::menu(&r, |ui| {
-                        if chrome::menu_item(ui, ph::FLAG, IC_RED, "Kennzeichnen") {
+                        if chrome::menu_item(ui, ph::FLAG, IC_RED, "Flag Message") {
                             acts.push(Act::Patch(
                                 m.id,
                                 MessagePatch {
@@ -751,7 +751,7 @@ impl App {
                             ui,
                             ph::CHECK,
                             IC_GREEN,
-                            "Als erledigt markieren / Kennzeichnung löschen",
+                            "Mark Complete / Clear Flag",
                         ) {
                             acts.push(Act::Patch(
                                 m.id,
@@ -771,7 +771,7 @@ impl App {
                     &t,
                     ph::PUSH_PIN,
                     IC_BLUE,
-                    if pinned { "Lösen" } else { "Anheften" },
+                    if pinned { "Unpin" } else { "Pin" },
                     has,
                 )
                 .clicked()
@@ -787,17 +787,17 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Suchen", |ui| {
+        chrome::group(ui, &t, "Find", |ui| {
             chrome::column(ui, |ui| {
-                if chrome::small(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", true).clicked() {
+                if chrome::small(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Address Book", true).clicked() {
                     self.switch_module(super::Module::People);
                 }
-                let r = chrome::small(ui, &t, ph::FUNNEL, IC_BLUE, "E-Mail filtern \u{E136}", true);
+                let r = chrome::small(ui, &t, ph::FUNNEL, IC_BLUE, "Filter Email \u{E136}", true);
                 chrome::menu(&r, |ui| {
                     for (f, label, icon) in [
-                        (Filter::All, "Alle E-Mails", ph::ENVELOPE_SIMPLE),
-                        (Filter::Unread, "Ungelesen", ph::ENVELOPE_SIMPLE_OPEN),
-                        (Filter::Flagged, "Gekennzeichnet", ph::FLAG),
+                        (Filter::All, "All Email", ph::ENVELOPE_SIMPLE),
+                        (Filter::Unread, "Unread", ph::ENVELOPE_SIMPLE_OPEN),
+                        (Filter::Flagged, "Flagged", ph::FLAG),
                     ] {
                         if chrome::menu_item(ui, icon, IC_BLUE, label) {
                             self.mail.filter = f;
@@ -819,13 +819,13 @@ impl App {
             .cloned();
         let editable = folder.as_ref().is_some_and(|f| f.role == "other");
         let mut acts = vec![];
-        chrome::group(ui, &t, "Neu", |ui| {
+        chrome::group(ui, &t, "New", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::FOLDER_PLUS,
                 IC_YELLOW,
-                "Neuer\nOrdner",
+                "New\nFolder",
                 folder.is_some(),
             )
             .clicked()
@@ -837,13 +837,13 @@ impl App {
                 ));
             }
         });
-        chrome::group(ui, &t, "Aktionen", |ui| {
+        chrome::group(ui, &t, "Actions", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::PENCIL_LINE,
                 IC_BLUE,
-                "Ordner\numbenennen",
+                "Rename\nFolder",
                 editable,
             )
             .clicked()
@@ -855,7 +855,7 @@ impl App {
                 &t,
                 ph::FOLDER_MINUS,
                 IC_RED,
-                "Ordner\nlöschen",
+                "Delete\nFolder",
                 editable,
             )
             .clicked()
@@ -863,13 +863,13 @@ impl App {
                 acts.push(Act::DeleteFolder(folder.as_ref().unwrap().id));
             }
         });
-        chrome::group(ui, &t, "Aufräumen", |ui| {
+        chrome::group(ui, &t, "Clean Up", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::ENVELOPE_SIMPLE_OPEN,
                 IC_BLUE,
-                "Alle als\ngelesen",
+                "Mark All\nas Read",
                 folder.is_some(),
             )
             .clicked()
@@ -880,13 +880,13 @@ impl App {
         self.mail_apply(acts);
     }
 
-    /// Contextual "Suchen" tab (Bereich, Optimieren, Schließen).
+    /// Contextual "Search" tab (Scope, Refine, Close).
     fn mail_search_ribbon(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        chrome::group(ui, &t, "Bereich", |ui| {
+        chrome::group(ui, &t, "Scope", |ui| {
             for (all, icon, label) in [
-                (true, ph::TRAY, "Alle\nPostfächer"),
-                (false, ph::FOLDER_OPEN, "Aktueller\nOrdner"),
+                (true, ph::TRAY, "All\nMailboxes"),
+                (false, ph::FOLDER_OPEN, "Current\nFolder"),
             ] {
                 let r = chrome::large(ui, &t, icon, IC_BLUE, label, true);
                 if self.mail.search_all == all {
@@ -903,7 +903,7 @@ impl App {
                 }
             }
         });
-        chrome::group(ui, &t, "Optimieren", |ui| {
+        chrome::group(ui, &t, "Refine", |ui| {
             let mut changed = false;
             let mut toggle = |ui: &mut egui::Ui, icon: &str, label: &str, on: &mut bool| {
                 let text = if *on {
@@ -917,25 +917,25 @@ impl App {
                 }
             };
             chrome::column(ui, |ui| {
-                toggle(ui, ph::PAPERCLIP, "Hat Anlagen", &mut self.mail.f_attach);
-                toggle(ui, ph::FLAG, "Gekennzeichnet", &mut self.mail.f_flagged);
-                toggle(ui, ph::WARNING, "Wichtig", &mut self.mail.f_important);
+                toggle(ui, ph::PAPERCLIP, "Has Attachments", &mut self.mail.f_attach);
+                toggle(ui, ph::FLAG, "Flagged", &mut self.mail.f_flagged);
+                toggle(ui, ph::WARNING, "Important", &mut self.mail.f_important);
             });
             chrome::column(ui, |ui| {
                 toggle(
                     ui,
                     ph::ENVELOPE_SIMPLE,
-                    "Ungelesen",
+                    "Unread",
                     &mut self.mail.f_unread,
                 );
-                toggle(ui, ph::TAG, "Kategorisiert", &mut self.mail.f_categorized);
+                toggle(ui, ph::TAG, "Categorized", &mut self.mail.f_categorized);
             });
             if changed {
                 self.dirty = true;
             }
         });
-        chrome::group(ui, &t, "Schließen", |ui| {
-            if chrome::large(ui, &t, ph::X_CIRCLE, IC_RED, "Suche\nschließen", true).clicked() {
+        chrome::group(ui, &t, "Close", |ui| {
+            if chrome::large(ui, &t, ph::X_CIRCLE, IC_RED, "Close\nSearch", true).clicked() {
                 self.search.clear();
                 let m = &mut self.mail;
                 (
@@ -952,20 +952,20 @@ impl App {
 
     fn mail_view_ribbon(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        chrome::group(ui, &t, "To-Do-Leiste", |ui| {
-            let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "To-Do-Leiste\n\u{E136}", true);
+        chrome::group(ui, &t, "To-Do Bar", |ui| {
+            let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "To-Do Bar\n\u{E136}", true);
             chrome::menu(&r, |ui| {
                 let mut changed = false;
                 changed |= ui
-                    .checkbox(&mut self.prefs.todo_calendar, "Kalender")
+                    .checkbox(&mut self.prefs.todo_calendar, "Calendar")
                     .changed();
                 changed |= ui
-                    .checkbox(&mut self.prefs.todo_people, "Personen")
+                    .checkbox(&mut self.prefs.todo_people, "People")
                     .changed();
                 changed |= ui
-                    .checkbox(&mut self.prefs.todo_tasks, "Aufgaben")
+                    .checkbox(&mut self.prefs.todo_tasks, "Tasks")
                     .changed();
-                if ui.button("Aus").clicked() {
+                if ui.button("Off").clicked() {
                     (
                         self.prefs.todo_calendar,
                         self.prefs.todo_people,
@@ -985,11 +985,11 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Nachrichten", |ui| {
+        chrome::group(ui, &t, "Messages", |ui| {
             let label = if self.prefs.conversations {
-                "Als Unterhaltungen\nanzeigen \u{E182}"
+                "Show as\nConversations \u{E182}"
             } else {
-                "Als Unterhaltungen\nanzeigen"
+                "Show as\nConversations"
             };
             if chrome::large(ui, &t, ph::CHATS, IC_BLUE, label, true).clicked() {
                 self.prefs.conversations = !self.prefs.conversations;
@@ -997,12 +997,12 @@ impl App {
             }
         });
         chrome::group(ui, &t, "Layout", |ui| {
-            let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "Lesebereich\n\u{E136}", true);
+            let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "Reading Pane\n\u{E136}", true);
             chrome::menu(&r, |ui| {
                 for (p, label, key) in [
-                    (ReadingPane::Right, "Rechts", "right"),
-                    (ReadingPane::Bottom, "Unten", "bottom"),
-                    (ReadingPane::Off, "Aus", "off"),
+                    (ReadingPane::Right, "Right", "right"),
+                    (ReadingPane::Bottom, "Bottom", "bottom"),
+                    (ReadingPane::Off, "Off", "off"),
                 ] {
                     if ui.radio(self.prefs.reading_pane == p, label).clicked() {
                         self.prefs.reading_pane = p;
@@ -1012,17 +1012,17 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Nachrichtenvorschau", |ui| {
+        chrome::group(ui, &t, "Message Preview", |ui| {
             let r = chrome::large(
                 ui,
                 &t,
                 ph::ROWS,
                 IC_BLUE,
-                "Nachrichten-\nvorschau \u{E136}",
+                "Message\nPreview \u{E136}",
                 true,
             );
             chrome::menu(&r, |ui| {
-                for (v, label) in [(false, "Aus"), (true, "1 Zeile")] {
+                for (v, label) in [(false, "Off"), (true, "1 Line")] {
                     if ui.radio(self.prefs.preview == v, label).clicked() {
                         self.prefs.preview = v;
                         self.save_setting("preview", serde_json::json!(v));
@@ -1031,12 +1031,12 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Anordnung", |ui| {
+        chrome::group(ui, &t, "Arrangement", |ui| {
             chrome::column(ui, |ui| {
                 for (s, label, icon) in [
-                    (Sort::Date, "Datum", ph::CALENDAR_BLANK),
-                    (Sort::From, "Von", ph::USER),
-                    (Sort::Subject, "Betreff", ph::TEXT_AA),
+                    (Sort::Date, "Date", ph::CALENDAR_BLANK),
+                    (Sort::From, "From", ph::USER),
+                    (Sort::Subject, "Subject", ph::TEXT_AA),
                 ] {
                     let txt = if self.mail.sort == s {
                         format!("{label}  \u{E182}")
@@ -1055,7 +1055,7 @@ impl App {
                     &t,
                     ph::ARROWS_DOWN_UP,
                     IC_BLUE,
-                    "Sortierung umkehren",
+                    "Reverse Sort",
                     true,
                 )
                 .clicked()
@@ -1096,7 +1096,7 @@ impl App {
                 };
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(format!("{arrow}  Favoriten")).strong())
+                        egui::Button::new(RichText::new(format!("{arrow}  Favorites")).strong())
                             .frame(false),
                     )
                     .clicked()
@@ -1152,7 +1152,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.add_space(22.0);
                             ui.label(
-                                RichText::new(format!("{}  Getrennt", ph::WARNING))
+                                RichText::new(format!("{}  Disconnected", ph::WARNING))
                                     .small()
                                     .color(self.t.danger),
                             )
@@ -1171,7 +1171,7 @@ impl App {
         self.mail_apply(acts);
     }
 
-    /// "Suchordner" node with Outlook's standard search folders.
+    /// "Search Folders" node with Outlook's standard search folders.
     fn search_folders(&mut self, ui: &mut egui::Ui, account: i64, acts: &mut Vec<Act>) {
         let t = self.t;
         let closed = self.mail.search_folders_closed.contains(&account);
@@ -1194,7 +1194,7 @@ impl App {
         ui.painter().text(
             egui::pos2(rect.left() + 26.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            "Suchordner",
+            "Search Folders",
             egui::FontId::proportional(13.0),
             t.text,
         );
@@ -1313,17 +1313,17 @@ impl App {
             acts.push(Act::Folder(f.id));
         }
         resp.context_menu(|ui| {
-            if chrome::menu_item(ui, ph::FOLDER_PLUS, IC_YELLOW, "Neuer Ordner…") {
+            if chrome::menu_item(ui, ph::FOLDER_PLUS, IC_YELLOW, "New Folder…") {
                 acts.push(Act::NewFolder(
                     f.account_id,
                     (f.role == "other").then_some(f.id),
                 ));
             }
             if f.role == "other" {
-                if chrome::menu_item(ui, ph::PENCIL_LINE, IC_BLUE, "Ordner umbenennen…") {
+                if chrome::menu_item(ui, ph::PENCIL_LINE, IC_BLUE, "Rename Folder…") {
                     acts.push(Act::RenameFolder(f.id));
                 }
-                if chrome::menu_item(ui, ph::FOLDER_MINUS, IC_RED, "Ordner löschen") {
+                if chrome::menu_item(ui, ph::FOLDER_MINUS, IC_RED, "Delete Folder") {
                     acts.push(Act::DeleteFolder(f.id));
                 }
             }
@@ -1332,7 +1332,7 @@ impl App {
                 ui,
                 ph::ENVELOPE_SIMPLE_OPEN,
                 IC_BLUE,
-                "Alle als gelesen markieren",
+                "Mark All as Read",
             ) {
                 acts.push(Act::MarkFolderRead(f.id));
             }
@@ -1402,8 +1402,8 @@ impl App {
         let mut ok = false;
         let mut cancel = false;
         let title = match d {
-            FolderDialog::New { .. } => "Neuen Ordner erstellen",
-            FolderDialog::Rename { .. } => "Ordner umbenennen",
+            FolderDialog::New { .. } => "Create New Folder",
+            FolderDialog::Rename { .. } => "Rename Folder",
             FolderDialog::Delete { .. } => "OpenLook",
         };
         egui::Window::new(title)
@@ -1422,15 +1422,15 @@ impl App {
                         }
                     }
                     FolderDialog::Delete { name, .. } => {
-                        ui.label(format!("Möchten Sie den Ordner \"{name}\" und alle darin enthaltenen Elemente wirklich löschen?"));
+                        ui.label(format!("Are you sure you want to delete the folder \"{name}\" and all items it contains?"));
                     }
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.add_sized([80.0, 24.0], egui::Button::new(if matches!(d, FolderDialog::Delete { .. }) { "Ja" } else { "OK" })).clicked() {
+                    if ui.add_sized([80.0, 24.0], egui::Button::new(if matches!(d, FolderDialog::Delete { .. }) { "Yes" } else { "OK" })).clicked() {
                         ok = true;
                     }
-                    if ui.add_sized([80.0, 24.0], egui::Button::new("Abbrechen")).clicked() {
+                    if ui.add_sized([80.0, 24.0], egui::Button::new("Cancel")).clicked() {
                         cancel = true;
                     }
                 });
@@ -1441,20 +1441,20 @@ impl App {
                     account,
                     parent,
                     name,
-                } => self.spawn(Some("Ordner erstellt."), move |st, _| async move {
+                } => self.spawn(Some("Folder created."), move |st, _| async move {
                     providers::create_folder(&st, account, parent, &name)
                         .await
                         .map(|_| ())
                 }),
                 FolderDialog::Rename { id, name } => self
-                    .spawn(Some("Ordner umbenannt."), move |st, _| async move {
+                    .spawn(Some("Folder renamed."), move |st, _| async move {
                         providers::rename_folder(&st, id, &name).await
                     }),
                 FolderDialog::Delete { id, .. } => {
                     if self.mail.folder_id == Some(id) {
                         self.mail.folder_id = None;
                     }
-                    self.spawn(Some("Ordner gelöscht."), move |st, _| async move {
+                    self.spawn(Some("Folder deleted."), move |st, _| async move {
                         providers::delete_folder(&st, id).await
                     })
                 }
@@ -1491,19 +1491,19 @@ impl App {
              <script>window.onload=()=>window.print()</script>",
             subject = esc(&m.summary.subject),
             me = esc(&me),
-            from = row("Von", &format!("{} <{}>", m.summary.from_name, m.summary.from_addr)),
-            date = row("Gesendet", &super::long_date(&m.summary.date)),
-            to = row("An", &m.to),
+            from = row("From", &format!("{} <{}>", m.summary.from_name, m.summary.from_addr)),
+            date = row("Sent", &super::long_date(&m.summary.date)),
+            to = row("To", &m.to),
             cc = row("Cc", &m.cc),
-            subj = row("Betreff", &m.summary.subject),
-            att = row("Anlagen", &names.join("; ")),
-            imp = if m.summary.importance == "high" { row("Wichtigkeit", "Hoch") } else { String::new() },
+            subj = row("Subject", &m.summary.subject),
+            att = row("Attachments", &names.join("; ")),
+            imp = if m.summary.importance == "high" { row("Importance", "High") } else { String::new() },
             body = if m.body_html.trim().is_empty() { crate::mail::text_to_html(&m.body_text) } else { m.body_html.clone() },
         );
-        let path = std::env::temp_dir().join(format!("openlook-druck-{id}.html"));
+        let path = std::env::temp_dir().join(format!("openlook-print-{id}.html"));
         match std::fs::write(&path, html) {
             Ok(()) => super::open_external(&path.to_string_lossy()),
-            Err(e) => self.toast(format!("Drucken fehlgeschlagen: {e}"), true),
+            Err(e) => self.toast(format!("Printing failed: {e}"), true),
         }
     }
 
@@ -1590,9 +1590,9 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let hint = if self.mail.search_all {
-                        "Alle Postfächer durchsuchen (Strg+E)"
+                        "Search All Mailboxes (Ctrl+E)"
                     } else {
-                        "Aktuellen Ordner durchsuchen (Strg+E)"
+                        "Search Current Folder (Ctrl+E)"
                     };
                     let w = ui.available_width() - 130.0;
                     ui.allocate_ui(egui::vec2(w, 26.0), |ui| {
@@ -1603,22 +1603,22 @@ impl App {
                     egui::ComboBox::from_id_salt("search_scope")
                         .width(120.0)
                         .selected_text(if self.mail.search_all {
-                            "Alle Postfächer"
+                            "All Mailboxes"
                         } else {
-                            "Aktueller Ordner"
+                            "Current Folder"
                         })
                         .show_ui(ui, |ui| {
                             if ui
                                 .selectable_value(
                                     &mut self.mail.search_all,
                                     false,
-                                    "Aktueller Ordner",
+                                    "Current Folder",
                                 )
                                 .clicked()
                                 | ui.selectable_value(
                                     &mut self.mail.search_all,
                                     true,
-                                    "Alle Postfächer",
+                                    "All Mailboxes",
                                 )
                                 .clicked()
                             {
@@ -1628,7 +1628,7 @@ impl App {
                 });
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    for (f, label) in [(Filter::All, "Alle"), (Filter::Unread, "Ungelesen")] {
+                    for (f, label) in [(Filter::All, "All"), (Filter::Unread, "Unread")] {
                         let active = self.mail.filter == f;
                         let text = RichText::new(label).size(13.0).color(if active {
                             t.accent
@@ -1646,10 +1646,10 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let dir = match (self.mail.sort, self.mail.ascending) {
-                            (Sort::Date, false) => format!("Neueste {}", ph::ARROW_DOWN),
-                            (Sort::Date, true) => format!("Älteste {}", ph::ARROW_UP),
-                            (_, false) => format!("A bis Z {}", ph::ARROW_DOWN),
-                            (_, true) => format!("Z bis A {}", ph::ARROW_UP),
+                            (Sort::Date, false) => format!("Newest {}", ph::ARROW_DOWN),
+                            (Sort::Date, true) => format!("Oldest {}", ph::ARROW_UP),
+                            (_, false) => format!("A to Z {}", ph::ARROW_DOWN),
+                            (_, true) => format!("Z to A {}", ph::ARROW_UP),
                         };
                         if ui
                             .add(egui::Button::new(RichText::new(dir).size(12.0)).frame(false))
@@ -1659,9 +1659,9 @@ impl App {
                             self.dirty = true;
                         }
                         let by = match self.mail.sort {
-                            Sort::Date => "Nach Datum",
-                            Sort::From => "Nach Von",
-                            Sort::Subject => "Nach Betreff",
+                            Sort::Date => "By Date",
+                            Sort::From => "By From",
+                            Sort::Subject => "By Subject",
                         };
                         let r = ui.add(
                             egui::Button::new(
@@ -1671,9 +1671,9 @@ impl App {
                         );
                         chrome::menu(&r, |ui| {
                             for (s, label) in [
-                                (Sort::Date, "Datum"),
-                                (Sort::From, "Von"),
-                                (Sort::Subject, "Betreff"),
+                                (Sort::Date, "Date"),
+                                (Sort::From, "From"),
+                                (Sort::Subject, "Subject"),
                             ] {
                                 if ui.radio(self.mail.sort == s, label).clicked() {
                                     self.mail.sort = s;
@@ -1695,9 +1695,9 @@ impl App {
             ui.add_space(30.0);
             ui.vertical_centered(|ui| {
                 let msg = if self.search.trim().is_empty() {
-                    "In dieser Ansicht gibt es keine Elemente."
+                    "There are no items to show in this view."
                 } else {
-                    "Es wurden keine Ergebnisse gefunden."
+                    "No results found."
                 };
                 ui.label(RichText::new(msg).color(t.text_weak));
             });
@@ -1730,7 +1730,7 @@ impl App {
                         continue;
                     }
                     let group = if m.is_pinned {
-                        "Angeheftet"
+                        "Pinned"
                     } else if self.mail.sort == Sort::Date {
                         date_group(&m.date)
                     } else {
@@ -1996,18 +1996,18 @@ impl App {
             acts.push(Act::Open(m.id));
         }
         resp.context_menu(|ui| {
-            if chrome::menu_item(ui, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Antworten") {
+            if chrome::menu_item(ui, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Reply") {
                 acts.push(Act::Compose(ComposeKind::Reply(m.id)));
             }
             if chrome::menu_item(
                 ui,
                 ph::ARROW_BEND_DOUBLE_UP_LEFT,
                 IC_PURPLE,
-                "Allen antworten",
+                "Reply All",
             ) {
                 acts.push(Act::Compose(ComposeKind::ReplyAll(m.id)));
             }
-            if chrome::menu_item(ui, ph::ARROW_BEND_UP_RIGHT, IC_PURPLE, "Weiterleiten") {
+            if chrome::menu_item(ui, ph::ARROW_BEND_UP_RIGHT, IC_PURPLE, "Forward") {
                 acts.push(Act::Compose(ComposeKind::Forward(m.id)));
             }
             ui.separator();
@@ -2016,9 +2016,9 @@ impl App {
                 ph::ENVELOPE_SIMPLE_OPEN,
                 IC_BLUE,
                 if m.is_read {
-                    "Als ungelesen markieren"
+                    "Mark as Unread"
                 } else {
-                    "Als gelesen markieren"
+                    "Mark as Read"
                 },
             ) {
                 acts.push(Act::Patch(
@@ -2029,7 +2029,7 @@ impl App {
                     },
                 ));
             }
-            ui.menu_button(format!("{}  Kategorisieren", ph::TAG), |ui| {
+            ui.menu_button(format!("{}  Categorize", ph::TAG), |ui| {
                 category_menu(ui, m, acts)
             });
             if chrome::menu_item(
@@ -2037,9 +2037,9 @@ impl App {
                 ph::FLAG,
                 t.flag,
                 if m.is_flagged {
-                    "Als erledigt markieren"
+                    "Mark Complete"
                 } else {
-                    "Zur Nachverfolgung"
+                    "Follow Up"
                 },
             ) {
                 acts.push(Act::Patch(
@@ -2054,7 +2054,7 @@ impl App {
                 ui,
                 ph::PUSH_PIN,
                 IC_BLUE,
-                if m.is_pinned { "Lösen" } else { "Anheften" },
+                if m.is_pinned { "Unpin" } else { "Pin" },
             ) {
                 acts.push(Act::Patch(
                     m.id,
@@ -2064,11 +2064,11 @@ impl App {
                     },
                 ));
             }
-            ui.menu_button(format!("{}  Verschieben", ph::FOLDER_SIMPLE), |ui| {
+            ui.menu_button(format!("{}  Move", ph::FOLDER_SIMPLE), |ui| {
                 self.move_menu(ui, m, acts)
             });
             ui.separator();
-            if chrome::menu_item(ui, ph::X, IC_RED, "Löschen") {
+            if chrome::menu_item(ui, ph::X, IC_RED, "Delete") {
                 acts.push(Act::Delete(m.id));
             }
         });
@@ -2078,7 +2078,7 @@ impl App {
         let Some(m) = &self.mail.current else {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    RichText::new("Wählen Sie ein Element aus, um es zu lesen.")
+                    RichText::new("Select an item to read")
                         .size(14.0)
                         .color(self.t.text_weak),
                 );
@@ -2114,9 +2114,9 @@ pub(super) fn read_message(
                     if actions {
                         ui.horizontal(|ui| {
                             for (icon, label, kind) in [
-                                (ph::ARROW_BEND_UP_LEFT, "Antworten", 0),
-                                (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Allen antworten", 1),
-                                (ph::ARROW_BEND_UP_RIGHT, "Weiterleiten", 2),
+                                (ph::ARROW_BEND_UP_LEFT, "Reply", 0),
+                                (ph::ARROW_BEND_DOUBLE_UP_LEFT, "Reply All", 1),
+                                (ph::ARROW_BEND_UP_RIGHT, "Forward", 2),
                             ] {
                                 let r = chrome::icon_button(ui, icon, IC_PURPLE, label);
                                 if r.clicked() {
@@ -2131,7 +2131,7 @@ pub(super) fn read_message(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if chrome::icon_button(ui, ph::GLOBE, IC_BLUE, "")
-                                        .on_hover_text("Im Browser anzeigen (Original-HTML)")
+                                        .on_hover_text("View in Browser (original HTML)")
                                         .clicked()
                                     {
                                         acts.push(Act::OpenInBrowser(s.id));
@@ -2169,7 +2169,7 @@ pub(super) fn read_message(
                             ui.label(RichText::new(&s.subject).size(13.5).strong());
                             if !m.to.is_empty() {
                                 ui.label(
-                                    RichText::new(format!("An   {}", m.to))
+                                    RichText::new(format!("To   {}", m.to))
                                         .size(12.0)
                                         .color(t.text_weak),
                                 );
@@ -2212,11 +2212,11 @@ pub(super) fn read_message(
                             ui,
                             "!",
                             t.danger,
-                            "Diese Nachricht wurde mit der Wichtigkeit \"Hoch\" gesendet.",
+                            "This message was sent with High importance.",
                         );
                     }
                     if s.is_flagged {
-                        info(ui, ph::FLAG, t.flag, "Zur Nachverfolgung.");
+                        info(ui, ph::FLAG, t.flag, "Follow up.");
                     }
                     for c in &s.categories {
                         egui::Frame::new()
@@ -2239,17 +2239,17 @@ pub(super) fn read_message(
                                     acts.push(Act::OpenAttachment(a.clone()));
                                 }
                                 r.on_hover_text(
-                                    "Doppelklick zum Öffnen, Rechtsklick für weitere Optionen",
+                                    "Double-click to open, right-click for more options",
                                 )
                                 .context_menu(|ui| {
-                                    if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Öffnen") {
+                                    if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Open") {
                                         acts.push(Act::OpenAttachment(a.clone()));
                                     }
                                     if chrome::menu_item(
                                         ui,
                                         ph::FLOPPY_DISK,
                                         IC_BLUE,
-                                        "Speichern unter…",
+                                        "Save As…",
                                     ) {
                                         acts.push(Act::SaveAttachment(a.clone()));
                                     }
@@ -2257,7 +2257,7 @@ pub(super) fn read_message(
                                         ui,
                                         ph::FLOPPY_DISK,
                                         IC_BLUE,
-                                        "Alle Anlagen speichern…",
+                                        "Save All Attachments…",
                                     ) {
                                         acts.push(Act::SaveAllAttachments(a.message_id));
                                     }
@@ -2265,7 +2265,7 @@ pub(super) fn read_message(
                             }
                         });
                     } else if s.has_attachments {
-                        info(ui, ph::PAPERCLIP, t.text_weak, "Anlagen werden geladen …");
+                        info(ui, ph::PAPERCLIP, t.text_weak, "Loading attachments…");
                     }
                     ui.add_space(8.0);
                     ui.separator();
@@ -2285,7 +2285,7 @@ pub(super) fn read_message(
                             parsed
                         });
                     if blocks.is_empty() {
-                        ui.label(RichText::new("(kein Inhalt)").color(t.text_weak));
+                        ui.label(RichText::new("(no content)").color(t.text_weak));
                     } else if let Some(link) =
                         html::show(ui, &blocks, t.text, t.text_weak, t.accent)
                     {
@@ -2303,7 +2303,7 @@ pub(super) fn read_message(
         });
 }
 
-/// Messages with the same subject (without AW:/WG: prefixes) form a conversation.
+/// Messages with the same subject (without RE:/FW:/AW:/WG: prefixes) form a conversation.
 fn conversation_key(subject: &str) -> String {
     strip_prefixes(subject).to_lowercase()
 }
@@ -2322,7 +2322,7 @@ fn file_icon(mime: &str) -> &'static str {
 
 pub(super) fn human_size(bytes: i64) -> String {
     match bytes {
-        b if b < 1024 => format!("{b} Bytes"),
+        b if b < 1024 => format!("{b} bytes"),
         b if b < 1024 * 1024 => format!("{} KB", b / 1024),
         b => format!("{:.1} MB", b as f64 / 1024.0 / 1024.0),
     }
@@ -2341,7 +2341,7 @@ pub(super) fn safe_file_name(name: &str) -> String {
         })
         .collect();
     if cleaned.trim().is_empty() {
-        "Anlage".into()
+        "Attachment".into()
     } else {
         cleaned
     }
@@ -2422,7 +2422,7 @@ pub(super) fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Ve
         }
     }
     ui.separator();
-    if ui.button("Alle Kategorien löschen").clicked() {
+    if ui.button("Clear All Categories").clicked() {
         acts.push(Act::Patch(
             m.id,
             MessagePatch {
@@ -2434,29 +2434,29 @@ pub(super) fn category_menu(ui: &mut egui::Ui, m: &MessageSummary, acts: &mut Ve
     }
 }
 
-/// Outlook groups the list into "Heute", "Gestern", "Mittwoch", "Letzte Woche", …
+/// Outlook groups the list into "Today", "Yesterday", "Wednesday", "Last Week", …
 fn date_group(date: &str) -> &'static str {
     let Some(d) = super::parse_utc(date) else {
-        return "Älter";
+        return "Older";
     };
     let today = super::today();
     let d = d.date_naive();
     let days = (today - d).num_days();
     let week_start = today - chrono::Duration::days(today.weekday().num_days_from_monday() as i64);
     if days <= 0 {
-        "Heute"
+        "Today"
     } else if days == 1 {
-        "Gestern"
+        "Yesterday"
     } else if d >= week_start {
         super::WEEKDAYS_LONG[d.weekday().num_days_from_monday() as usize]
     } else if d >= week_start - chrono::Duration::days(7) {
-        "Letzte Woche"
+        "Last Week"
     } else if d >= week_start - chrono::Duration::days(14) {
-        "Vor zwei Wochen"
+        "Two Weeks Ago"
     } else if d.month() == today.month() && d.year() == today.year() {
-        "Anfang dieses Monats"
+        "Earlier this Month"
     } else {
-        "Älter"
+        "Older"
     }
 }
 
@@ -2466,20 +2466,20 @@ mod tests {
 
     #[test]
     fn groups_today() {
-        assert_eq!(date_group(&crate::mail::now_utc()), "Heute");
-        assert_eq!(date_group("2001-01-01T00:00:00Z"), "Älter");
+        assert_eq!(date_group(&crate::mail::now_utc()), "Today");
+        assert_eq!(date_group("2001-01-01T00:00:00Z"), "Older");
     }
 
     #[test]
     fn sanitizes_file_names() {
         assert_eq!(safe_file_name("../a/b:c.txt"), ".._a_b_c.txt");
-        assert_eq!(safe_file_name("  "), "Anlage");
+        assert_eq!(safe_file_name("  "), "Attachment");
         assert_eq!(human_size(2048), "2 KB");
     }
 
     #[test]
     fn strips_reply_prefixes() {
-        assert_eq!(strip_prefixes("AW: WG: Re: Hallo"), "Hallo");
-        assert_eq!(strip_prefixes("Rechnung"), "Rechnung");
+        assert_eq!(strip_prefixes("AW: WG: Re: Hello"), "Hello");
+        assert_eq!(strip_prefixes("Invoice"), "Invoice");
     }
 }
