@@ -238,6 +238,20 @@ static ICONS: &[Entry] = &[
         include_bytes!("../../assets/icons/users_32.svg"),
     ),
     (
+        ph::USERS_FOUR,
+        "bytes://icons/users_four_20.svg",
+        include_bytes!("../../assets/icons/users_four_20.svg"),
+        "bytes://icons/users_four_32.svg",
+        include_bytes!("../../assets/icons/users_four_32.svg"),
+    ),
+    (
+        ph::USER_MINUS,
+        "bytes://icons/user_minus_20.svg",
+        include_bytes!("../../assets/icons/user_minus_20.svg"),
+        "bytes://icons/user_minus_32.svg",
+        include_bytes!("../../assets/icons/user_minus_32.svg"),
+    ),
+    (
         ph::USER_CIRCLE,
         "bytes://icons/user_circle_20.svg",
         include_bytes!("../../assets/icons/user_circle_20.svg"),

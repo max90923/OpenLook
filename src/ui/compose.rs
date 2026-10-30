@@ -236,6 +236,7 @@ impl App {
         );
         let accounts = self.data.accounts.clone();
         let contacts = self.data.contacts.clone();
+        let groups = self.data.groups.clone();
         let signature = self.prefs.signature.clone();
         let mut send = false;
         let mut save = false;
@@ -255,7 +256,7 @@ impl App {
                 &mut tab,
                 |ui, tab| match tab {
                     0 => {
-                        group_names(ui, &t, c, &contacts);
+                        group_names(ui, &t, c, &contacts, &groups);
                         group_basic_text(ui, &t, c);
                         chrome::group(ui, &t, "Einschließen", |ui| {
                             attach_button(ui, &t, c);
@@ -515,6 +516,7 @@ impl App {
                                             ("addr", wid, i),
                                             field,
                                             &contacts,
+                                            &groups,
                                             w - 84.0,
                                         ) {
                                             c.changed = true;
@@ -677,17 +679,24 @@ impl App {
                         egui::ScrollArea::vertical()
                             .max_height(300.0)
                             .show(ui, |ui| {
-                                for k in contacts.iter().filter(|k| !k.email.is_empty()) {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(format!(
-                                                "{}   <{}>",
-                                                k.display_name, k.email
-                                            ))
-                                            .frame(false),
+                                let entries = groups
+                                    .iter()
+                                    .map(|g| {
+                                        (
+                                            format!("{}  {}", ph::USERS_THREE, g.name),
+                                            g.members.join("; "),
                                         )
-                                        .clicked()
-                                    {
+                                    })
+                                    .chain(contacts.iter().filter(|k| !k.email.is_empty()).map(
+                                        |k| {
+                                            (
+                                                format!("{}   <{}>", k.display_name, k.email),
+                                                format!("{} <{}>", k.display_name, k.email),
+                                            )
+                                        },
+                                    ));
+                                for (label, insert) in entries {
+                                    if ui.add(egui::Button::new(label).frame(false)).clicked() {
                                         let target = match field {
                                             0 => &mut c.to,
                                             1 => &mut c.cc,
@@ -700,10 +709,7 @@ impl App {
                                         } else {
                                             "; "
                                         };
-                                        target.push_str(&format!(
-                                            "{sep}{} <{}>; ",
-                                            k.display_name, k.email
-                                        ));
+                                        target.push_str(&format!("{sep}{insert}; "));
                                     }
                                 }
                             });
@@ -808,6 +814,10 @@ impl App {
         }
         if send && !c.sending {
             c.sending = true;
+            // A group name typed without picking it is expanded on send, like Outlook.
+            for f in [&mut c.to, &mut c.cc, &mut c.bcc] {
+                *f = expand_groups(f, &groups);
+            }
             let m = c.to_outgoing();
             let draft = c.draft_id;
             self.busy += 1;
@@ -1080,9 +1090,29 @@ fn mime_for(path: &std::path::Path) -> String {
     .into()
 }
 
-/// Replace names without address by the matching contact ("Namen überprüfen").
-fn resolve_names(field: &str, contacts: &[Contact]) -> String {
+/// Replace contact group names by their members.
+pub(super) fn expand_groups(field: &str, groups: &[ContactGroup]) -> String {
     field
+        .split([';', ','])
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            match groups
+                .iter()
+                .find(|g| g.name.to_lowercase() == p.to_lowercase())
+            {
+                Some(g) => g.members.join("; "),
+                None => p.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Replace names without address by the matching contact or contact group
+/// ("Namen überprüfen").
+fn resolve_names(field: &str, contacts: &[Contact], groups: &[ContactGroup]) -> String {
+    expand_groups(field, groups)
         .split([';', ','])
         .map(str::trim)
         .filter(|p| !p.is_empty())
@@ -1105,11 +1135,12 @@ fn resolve_names(field: &str, contacts: &[Contact]) -> String {
 
 /// Recipient field with suggestions from the address book ("AutoVervollständigen").
 /// Enter or Tab takes the first suggestion, a click takes the clicked one.
-fn address_field(
+pub(super) fn address_field(
     ui: &mut egui::Ui,
     id: impl std::hash::Hash,
     value: &mut String,
     contacts: &[Contact],
+    groups: &[ContactGroup],
     width: f32,
 ) -> bool {
     let resp = ui.add(
@@ -1136,32 +1167,62 @@ fn address_field(
         .trim()
         .to_lowercase();
     let active = resp.has_focus() || clicking_popup || confirm;
-    let hits: Vec<&Contact> = if active && !token.is_empty() && !token.contains('>') {
-        contacts
+    // (shown text, inserted text, address); groups insert all their members.
+    let hits: Vec<(String, String, String)> = if active && !token.is_empty() && !token.contains('>')
+    {
+        groups
             .iter()
-            .filter(|c| !c.email.is_empty())
-            .filter(|c| {
-                c.display_name.to_lowercase().contains(&token)
-                    || c.email.to_lowercase().contains(&token)
+            .filter(|g| g.name.to_lowercase().contains(&token))
+            .map(|g| {
+                (
+                    format!("{}  {}", ph::USERS_THREE, g.name),
+                    g.members.join("; "),
+                    String::new(),
+                )
             })
+            .chain(
+                contacts
+                    .iter()
+                    .filter(|c| !c.email.is_empty())
+                    .filter(|c| {
+                        c.display_name.to_lowercase().contains(&token)
+                            || c.email.to_lowercase().contains(&token)
+                    })
+                    .map(|c| {
+                        (
+                            format!("{}   <{}>", c.display_name, c.email),
+                            format!("{} <{}>", c.display_name, c.email),
+                            c.email.to_lowercase(),
+                        )
+                    }),
+            )
             .take(6)
             .collect()
     } else {
         vec![]
     };
-    let take = |value: &mut String, c: &Contact| {
+    let ctx = ui.ctx().clone();
+    let take = |value: &mut String, insert: &str| {
         let keep = value
             .rfind([';', ','])
             .map(|i| value[..=i].to_string() + " ")
             .unwrap_or_default();
-        *value = format!("{keep}{} <{}>; ", c.display_name, c.email);
+        *value = format!("{keep}{insert}; ");
+        // Continue typing after the inserted name.
+        let mut state = egui::text_edit::TextEditState::load(&ctx, resp.id).unwrap_or_default();
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(
+                egui::text::CCursor::new(value.chars().count()),
+            )));
+        state.store(&ctx, resp.id);
     };
-    if hits.is_empty() || hits.iter().any(|c| c.email.to_lowercase() == token) {
+    if hits.is_empty() || hits.iter().any(|h| h.2 == token) {
         ui.data_mut(|d| d.remove::<egui::Rect>(rect_id));
         return changed;
     }
     if confirm {
-        take(value, hits[0]);
+        take(value, &hits[0].1);
         ui.data_mut(|d| d.remove::<egui::Rect>(rect_id));
         resp.request_focus();
         return true;
@@ -1172,13 +1233,13 @@ fn address_field(
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(resp.rect.width().min(420.0));
-                for (i, c) in hits.iter().enumerate() {
-                    let text = RichText::new(format!("{}   <{}>", c.display_name, c.email));
+                for (i, (label, insert, _)) in hits.iter().enumerate() {
+                    let text = RichText::new(label);
                     let r = ui.add(
                         egui::Button::new(if i == 0 { text.strong() } else { text }).frame(false),
                     );
                     if r.clicked() || r.is_pointer_button_down_on() {
-                        take(value, c);
+                        take(value, insert);
                         changed = true;
                         resp.request_focus();
                     }
@@ -1194,6 +1255,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn expands_contact_groups() {
+        let groups = vec![ContactGroup {
+            name: "Projektteam".into(),
+            members: vec!["Anna <anna@x.de>".into(), "bob@x.de".into()],
+            ..Default::default()
+        }];
+        assert_eq!(
+            expand_groups("projektteam; carl@x.de", &groups),
+            "Anna <anna@x.de>; bob@x.de; carl@x.de"
+        );
+        assert_eq!(
+            resolve_names("Projektteam", &[], &groups),
+            "Anna <anna@x.de>; bob@x.de"
+        );
+    }
+
+    #[test]
     fn resolves_names_from_contacts() {
         let contacts = vec![Contact {
             display_name: "Anna Schmidt".into(),
@@ -1201,7 +1279,7 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(
-            resolve_names("anna; bob@x.de; Unbekannt", &contacts),
+            resolve_names("anna; bob@x.de; Unbekannt", &contacts, &[]),
             "Anna Schmidt <anna@x.de>; bob@x.de; Unbekannt"
         );
     }
@@ -1209,7 +1287,13 @@ mod tests {
 
 // ---------------------------------------------------------------- ribbon groups of the message window
 
-fn group_names(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer, contacts: &[Contact]) {
+fn group_names(
+    ui: &mut egui::Ui,
+    t: &super::theme::Theme,
+    c: &mut Composer,
+    contacts: &[Contact],
+    groups: &[ContactGroup],
+) {
     chrome::group(ui, t, "Namen", |ui| {
         if chrome::large(ui, t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", !c.sending).clicked() {
             c.address_book = Some(0);
@@ -1224,9 +1308,9 @@ fn group_names(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer, con
         )
         .clicked()
         {
-            c.to = resolve_names(&c.to, contacts);
-            c.cc = resolve_names(&c.cc, contacts);
-            c.bcc = resolve_names(&c.bcc, contacts);
+            c.to = resolve_names(&c.to, contacts, groups);
+            c.cc = resolve_names(&c.cc, contacts, groups);
+            c.bcc = resolve_names(&c.bcc, contacts, groups);
         }
     });
 }

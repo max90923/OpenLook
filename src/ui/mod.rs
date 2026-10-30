@@ -11,6 +11,7 @@ mod backstage;
 mod calendar;
 mod chrome;
 mod compose;
+mod groups;
 mod html;
 mod icons;
 mod mail;
@@ -163,6 +164,7 @@ pub struct Data {
     pub accounts: Vec<Account>,
     pub folders: Vec<Folder>,
     pub contacts: Vec<Contact>,
+    pub groups: Vec<ContactGroup>,
     pub tasks: Vec<Task>,
 }
 
@@ -195,6 +197,7 @@ pub enum Win {
     Compose(compose::Composer),
     Event(calendar::EventEditor),
     Contact(people::ContactEditor),
+    ContactGroup(groups::GroupEditor),
     Task(tasks::TaskEditor),
     Options(backstage::OptionsWin),
     AddAccount(backstage::AddAccountWin),
@@ -469,6 +472,10 @@ impl App {
             self.data.accounts = db::list_accounts(&c)?;
             self.data.folders = db::list_folders(&c)?;
             self.data.contacts = db::list_contacts(&c)?;
+            self.data.groups = db::get_settings(&c)?
+                .get("contact_groups")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
             self.data.tasks = db::list_tasks(&c)?;
             Ok(())
         })();
@@ -1097,6 +1104,7 @@ impl App {
                 Win::Compose(c) => self.compose_window(ctx, vid, w.id, c),
                 Win::Event(e) => self.event_window(ctx, vid, e),
                 Win::Contact(c) => self.contact_window(ctx, vid, c),
+                Win::ContactGroup(g) => self.group_window(ctx, vid, g),
                 Win::Task(t) => self.task_window(ctx, vid, t),
                 Win::Options(o) => self.options_window(ctx, vid, o),
                 Win::AddAccount(a) => self.add_account_window(ctx, vid, a),

@@ -22,8 +22,16 @@ pub enum PeopleMode {
 #[derive(Default)]
 pub struct PeopleView {
     selected: Option<i64>,
+    /// Index of the selected contact group (instead of a contact).
+    pub(super) selected_group: Option<usize>,
     mode: PeopleMode,
     favorites_only: bool,
+}
+
+impl PeopleView {
+    pub(super) fn clear_contact(&mut self) {
+        self.selected = None;
+    }
 }
 
 pub struct ContactEditor {
@@ -70,9 +78,27 @@ impl App {
             if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Neuer\nKontakt", true).clicked() {
                 self.new_contact();
             }
+            if chrome::large(ui, &t, ph::USERS_FOUR, IC_BLUE, "Neue\nKontaktgruppe", true).clicked()
+            {
+                self.new_contact_group();
+            }
         });
+        let group = self.people.selected_group;
         chrome::group(ui, &t, "Löschen", |ui| {
-            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", sel.is_some()).clicked() {
+            if chrome::large(
+                ui,
+                &t,
+                ph::X,
+                IC_RED,
+                "Löschen",
+                sel.is_some() || group.is_some(),
+            )
+            .clicked()
+            {
+                if let Some(i) = group {
+                    self.delete_contact_group(i);
+                    return;
+                }
                 let id = sel.as_ref().unwrap().id;
                 self.people.selected = None;
                 self.spawn(Some("Kontakt gelöscht."), move |st, _| async move {
@@ -82,7 +108,20 @@ impl App {
         });
         chrome::group(ui, &t, "Kommunizieren", |ui| {
             let has_mail = sel.as_ref().is_some_and(|c| !c.email.is_empty());
-            if chrome::large(ui, &t, ph::ENVELOPE_SIMPLE, IC_BLUE, "E-Mail", has_mail).clicked() {
+            if chrome::large(
+                ui,
+                &t,
+                ph::ENVELOPE_SIMPLE,
+                IC_BLUE,
+                "E-Mail",
+                has_mail || group.is_some(),
+            )
+            .clicked()
+            {
+                if let Some(i) = group {
+                    self.mail_to_group(i);
+                    return;
+                }
                 let c = sel.as_ref().unwrap();
                 self.switch_module(Module::Mail);
                 self.open_composer(ComposeKind::To(format!("{} <{}>", c.display_name, c.email)));
@@ -216,6 +255,9 @@ impl App {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
+                        if !self.people.favorites_only {
+                            self.group_rows(ui);
+                        }
                         let mut letter = None;
                         for c in list {
                             let l = c
@@ -272,6 +314,7 @@ impl App {
                             );
                             if resp.clicked() {
                                 self.people.selected = Some(c.id);
+                                self.people.selected_group = None;
                             }
                             if resp.double_clicked() {
                                 self.open_window(Win::Contact(ContactEditor { c: c.clone() }));
@@ -295,6 +338,10 @@ impl App {
                     .inner_margin(egui::Margin::same(24)),
             )
             .show_inside(ui, |ui| {
+                if let Some(i) = self.people.selected_group {
+                    self.group_details(ui, i);
+                    return;
+                }
                 let Some(c) = self
                     .people
                     .selected

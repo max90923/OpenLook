@@ -48,6 +48,8 @@ MAP = [
     ("USER_PLUS", "person_add", None),
     ("USER", "person", None),
     ("USERS", "people", None),
+    ("USERS_FOUR", "people_add", None),
+    ("USER_MINUS", "person_delete", RED),
     ("USER_CIRCLE", "person", None),
     ("USER_CHECK", "person_available", None),
     ("IDENTIFICATION_CARD", "contact_card", None),

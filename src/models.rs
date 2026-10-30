@@ -182,6 +182,16 @@ pub struct Contact {
     pub favorite: bool,
 }
 
+/// Kontaktgruppe (distribution list), stored locally in the settings.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContactGroup {
+    pub name: String,
+    /// Members as "Name <address>".
+    pub members: Vec<String>,
+    pub notes: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Task {
