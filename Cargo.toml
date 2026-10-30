@@ -3,7 +3,7 @@ name = "openlook"
 version = "0.1.0"
 edition = "2021"
 description = "Native Outlook-style desktop client for mail, calendar, contacts and tasks (IMAP/SMTP + Microsoft Graph)"
-license = "MIT"
+license = "Unlicense"
 
 [dependencies]
 anyhow = "1"

@@ -4,10 +4,10 @@
 
 **Ein freier Klon eines bekannten Mail-Clients – E-Mail, Kalender, Kontakte und Aufgaben in einem Desktop-Programm.**
 
-Ein einziges natives Programm in Rust · kein Server · kein Browser · Open Source (MIT)
+Ein einziges natives Programm in Rust · kein Server · kein Browser · gemeinfrei (Unlicense)
 
 ![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)
-![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-blue)
+![Lizenz: Unlicense](https://img.shields.io/badge/Lizenz-Unlicense-blue)
 ![Plattformen](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-lightgrey)
 ![IMAP · SMTP · Microsoft 365](https://img.shields.io/badge/IMAP%20%C2%B7%20SMTP%20%C2%B7%20Microsoft%20365-0078D4)
 ![Status: ungetestet](https://img.shields.io/badge/Status-ungetestet-red)
@@ -25,7 +25,7 @@ Ein einziges natives Programm in Rust · kein Server · kein Browser · Open Sou
 * **Alles in einem Programm** – E-Mail, Kalender mit Terminplanungs-Assistent, Personen mit Kontaktgruppen, Aufgaben, Notizen und Journal.
 * **Jedes Postfach** – IMAP/SMTP (Gmail, GMX, WEB.DE, T-Online, Posteo, mailbox.org, iCloud …) und Microsoft 365 / Outlook.com über Microsoft Graph, auch freigegebene Postfächer.
 * **Schnell und sparsam** – eine einzelne ausführbare Datei, lokaler SQLite-Cache, Netzwerkzugriffe im Hintergrund; Kennwörter im Schlüsselbund des Betriebssystems.
-* **Frei** – Quellcode unter MIT-Lizenz, keine Telemetrie, keine Werbung.
+* **Frei** – gemeinfrei: Jeder darf damit machen, was er will, ohne Bedingungen. Keine Telemetrie, keine Werbung.
 
 ## Screenshots
 
@@ -191,6 +191,6 @@ IMAP-Kennwörter und Microsoft-Tokens werden im Schlüsselbund des Betriebssyste
 
 ## Lizenz und Hinweise
 
-OpenLook steht unter der [MIT-Lizenz](LICENSE). Die Symbole stammen aus den [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT, © Microsoft, siehe `assets/icons/LICENSE`) und [Phosphor Icons](https://phosphoricons.com) (MIT).
+OpenLook ist gemeinfrei ([The Unlicense](LICENSE)): Jeder darf den Code ohne Bedingungen nutzen, ändern, weitergeben und verkaufen – privat wie kommerziell, auch ohne Namensnennung. Ausgenommen sind nur die Symbole; sie stammen aus den [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT, © Microsoft, siehe `assets/icons/LICENSE`) und [Phosphor Icons](https://phosphoricons.com) (MIT).
 
 OpenLook ist ein unabhängiges Open-Source-Projekt und steht in keiner Verbindung zu Microsoft. Microsoft, Outlook und Microsoft 365 sind Marken der Microsoft Corporation.
