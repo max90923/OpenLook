@@ -2,195 +2,194 @@
 
 # OpenLook
 
-**Ein freier Klon eines bekannten Mail-Clients – E-Mail, Kalender, Kontakte und Aufgaben in einem Desktop-Programm.**
+**A free clone of a well-known mail client – email, calendar, contacts and tasks in one desktop program.**
 
-Ein einziges natives Programm in Rust · kein Server · kein Browser · gemeinfrei (Unlicense)
+One native Rust program · no server · no browser · public domain (Unlicense)
 
 ![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)
-![Lizenz: Unlicense](https://img.shields.io/badge/Lizenz-Unlicense-blue)
-![Plattformen](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-lightgrey)
+![License: Unlicense](https://img.shields.io/badge/License-Unlicense-blue)
+![Platforms](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-lightgrey)
 ![IMAP · SMTP · Microsoft 365](https://img.shields.io/badge/IMAP%20%C2%B7%20SMTP%20%C2%B7%20Microsoft%20365-0078D4)
-![Status: ungetestet](https://img.shields.io/badge/Status-ungetestet-red)
+![Status: untested](https://img.shields.io/badge/Status-untested-red)
 
-<img src="docs/screenshots/mail.png" alt="OpenLook – E-Mail mit Ordnerbereich, Nachrichtenliste und Lesebereich" width="100%">
+<img src="docs/screenshots/mail.png" alt="OpenLook – mail with folder pane, message list and reading pane" width="100%">
 
 </div>
 
 > [!WARNING]
-> **OpenLook ist noch ungetestet.** Das Programm ist bisher nicht im Alltag erprobt und nur in einer Testumgebung gelaufen (Linux; Windows-Version unter Wine; IMAP/SMTP gegen einen lokalen Testserver; Microsoft 365 nur gegen einen nachgebauten Server). Mit einem echten Microsoft-365-Konto, auf echtem Windows und auf macOS wurde es noch nie ausprobiert. Bitte nicht als einziges Programm für wichtige Postfächer verwenden und vorher Sicherungen anlegen. Fehlerberichte sind willkommen.
+> **OpenLook is still untested.** It has not been used in everyday work and has only run in a test environment (Linux; the Windows build under Wine; IMAP/SMTP against a local test server; Microsoft 365 only against a simulated server). It has never been tried with a real Microsoft 365 account, on real Windows or on macOS. Please don't use it as the only program for important mailboxes, and keep backups. Bug reports are welcome.
 
-## Warum OpenLook?
+## Why OpenLook?
 
-* **Vertraut ab der ersten Minute** – Menüband, Ordnerbereich, Nachrichtenliste, Lesebereich, Backstage, eigene Fenster für Nachrichten und Termine, dieselben Tastenkürzel (`Strg+N`, `Strg+R`, `F9` …) wie beim Vorbild.
-* **Alles in einem Programm** – E-Mail, Kalender mit Terminplanungs-Assistent, Personen mit Kontaktgruppen, Aufgaben, Notizen und Journal.
-* **Jedes Postfach** – IMAP/SMTP (Gmail, GMX, WEB.DE, T-Online, Posteo, mailbox.org, iCloud …) und Microsoft 365 / Outlook.com über Microsoft Graph, auch freigegebene Postfächer.
-* **Schnell und sparsam** – eine einzelne ausführbare Datei, lokaler SQLite-Cache, Netzwerkzugriffe im Hintergrund; Kennwörter im Schlüsselbund des Betriebssystems.
-* **Frei** – gemeinfrei: Jeder darf damit machen, was er will, ohne Bedingungen. Keine Telemetrie, keine Werbung.
+* **Familiar from the first minute** – ribbon, folder pane, message list, reading pane, backstage, separate windows for messages and appointments, and the same keyboard shortcuts (`Ctrl+N`, `Ctrl+R`, `F9` …) as the original.
+* **Everything in one program** – mail, calendar with Scheduling Assistant, people with contact groups, tasks, notes and journal.
+* **Any mailbox** – IMAP/SMTP (Gmail, iCloud, Yahoo, GMX, Posteo, mailbox.org …) and Microsoft 365 / Outlook.com via Microsoft Graph, including shared mailboxes.
+* **Fast and lean** – a single executable, local SQLite cache, network access in the background; passwords in the operating system's keychain.
+* **Free** – public domain: anyone may do anything with it, no conditions. No telemetry, no ads.
 
 ## Screenshots
 
 | | |
 |:---:|:---:|
-| <img src="docs/screenshots/kalender.png" alt="Kalender in der Arbeitswochenansicht"><br>**Kalender** – Arbeitswoche, Datumsnavigator, Kategorien | <img src="docs/screenshots/verfassen.png" alt="Nachricht verfassen"><br>**Nachricht verfassen** – eigenes Fenster mit Menüband |
-| <img src="docs/screenshots/terminplanung.png" alt="Terminplanungs-Assistent"><br>**Terminplanungs-Assistent** – Frei/Gebucht und AutoAuswahl | <img src="docs/screenshots/personen.png" alt="Personen"><br>**Personen** – Kontakte, Visitenkarten, Kontaktgruppen |
-| <img src="docs/screenshots/aufgaben.png" alt="Aufgaben"><br>**Aufgaben** – Nachverfolgung und Ansichten | |
+| <img src="docs/screenshots/calendar.png" alt="Calendar in work week view"><br>**Calendar** – work week, date navigator, categories | <img src="docs/screenshots/compose.png" alt="Composing a message"><br>**New message** – its own window with a ribbon |
+| <img src="docs/screenshots/scheduling.png" alt="Scheduling Assistant"><br>**Scheduling Assistant** – free/busy and AutoPick | <img src="docs/screenshots/people.png" alt="People"><br>**People** – contacts, business cards, contact groups |
+| <img src="docs/screenshots/tasks.png" alt="Tasks"><br>**Tasks** – follow-up flags and views | |
 
-## Schnellstart
+## Quick start
 
 ```sh
-git clone <dieses Repository> openlook && cd openlook
+git clone <this repository> openlook && cd openlook
 cargo run --release
 ```
 
-OpenLook startet mit einem lokalen Postfach samt Beispieldaten. Ein echtes Konto fügst du über *Datei → Konto hinzufügen* hinzu. Das Ergebnis von `cargo build --release` ist eine einzelne Datei (`target/release/openlook`, unter Windows `openlook.exe`).
+OpenLook starts with a local mailbox containing sample data. Add a real account with *File → Add Account*. `cargo build --release` produces a single file (`target/release/openlook`, on Windows `openlook.exe`).
 
-## Funktionen im Überblick
+## Features
 
-### Oberfläche
+### Window
 
-* **Eigene Titelleiste** mit Symbolleiste für den Schnellzugriff (Senden/Empfangen, Menüband ein/aus), Fenstertitel „Posteingang - konto - OpenLook“, Minimieren/Maximieren/Schließen.
-* **Menüband** mit Registerkarten *Datei · Start · Senden/Empfangen · Ordner · Ansicht · Hilfe*, Gruppen mit großen und kleinen Schaltflächen, Drop-down-Menüs und „Was möchten Sie tun?“; die Registerkarte *Suchen* erscheint während einer Suche (Bereich, Optimieren: Anlagen, gekennzeichnet, wichtig, ungelesen, kategorisiert). Symbole aus den Fluent UI System Icons von Microsoft wie im Office-Menüband.
-* **Datei-Backstage**: Kontoinformationen, Konto hinzufügen, Kontoeinstellungen (synchronisieren, entfernen), Postfachtools („Gelöschte Elemente“ leeren), Optionen, Beenden.
-* **Ordnerbereich** mit Favoriten, Ordnerbaum pro Konto (Ungelesen-Zähler, Entwürfe in [ ]) und Suchordnern (Ungelesene E-Mail, Zur Nachverfolgung gekennzeichnet, E-Mail mit Anlagen, Wichtige E-Mail), minimierbar, unten die Modulleiste *E-Mail · Kalender · Personen · Aufgaben*.
-* **To-Do-Leiste** (Ansicht → To-Do-Leiste): Kalender mit kommenden Terminen, Personen-Favoriten und Aufgaben.
-* **Statusleiste** mit Elemente/Ungelesen, Sync-Status, Verbindungsstatus und Zoom-Regler.
-* **Eigene Betriebssystem-Fenster** wie beim Vorbild für: Nachricht lesen, Nachricht verfassen, Termin/Besprechung, Kontakt, Aufgabe, Optionen, Konto hinzufügen und Erinnerungen.
-* Designs **Bunt** und **Schwarz**.
+* **Custom title bar** with a Quick Access Toolbar (Send/Receive, show/hide ribbon), window title "Inbox - account - OpenLook", minimise/maximise/close.
+* **Ribbon** with the tabs *File · Home · Send / Receive · Folder · View · Help*, groups with large and small buttons, drop-down menus and "Tell me what you want to do"; the *Search* tab appears while searching (scope; refine by attachments, flagged, important, unread, categorized).
+* **File backstage**: account information, Add Account, Account Settings (sync, remove), mailbox tools (empty Deleted Items), Options, Exit.
+* **Folder pane** with Favorites, a folder tree per account (unread counts, drafts in [ ]) and Search Folders (Unread Mail, For Follow Up, Mail with Attachments, Important Mail), can be minimised; the navigation bar *Mail · Calendar · People · Tasks* at the bottom.
+* **To-Do Bar** (View → To-Do Bar): calendar peek with upcoming appointments, favourite people and tasks.
+* **Status bar** with items/unread, sync status, connection status and zoom slider.
+* **Separate operating-system windows** as in the original for: reading a message, composing, appointment/meeting, contact, contact group, task, notes, options, Add Account and reminders.
+* Office themes **Colorful** and **Black**.
 
-### Module
+### Modules
 
-| Modul | Funktionen |
+| Module | Features |
 |---|---|
-| **E-Mail** | HTML-Anzeige (fett, kursiv, Links, Überschriften, Listen, Zitate, Tabellen), Anlagen öffnen/speichern/alle speichern, Unterhaltungsansicht, Ordnerbaum mit Unterordnern, Ordner anlegen/umbenennen/löschen, öffentliche/freigegebene IMAP-Ordner, Regeln, Drucken (`Strg+P`), Nachrichtenliste mit Gruppen (Heute, Gestern, Wochentag, Letzte Woche …), Alle/Ungelesen, Sortierung nach Datum/Von/Betreff, Suche im aktuellen Ordner oder in allen Postfächern, Lesebereich rechts/unten/aus, Nachrichtenvorschau, Antworten/Allen antworten/Weiterleiten, Löschen → „Gelöschte Elemente“, Archivieren, Junk-E-Mail, Verschieben (auch per Drag & Drop), Ungelesen/Gelesen, Kategorien, Zur Nachverfolgung, Anheften, Doppelklick öffnet die Nachricht im eigenen Fenster, Original-HTML im Browser, QuickSteps (Verschieben in, An Vorgesetzte(n), Team-E-Mail, Erledigt, Antworten und löschen, eigene QuickSteps), Ignorieren und Aufräumen von Unterhaltungen |
-| **Verfassen** | Formatierung (fett, kursiv, unterstrichen, Aufzählung, Nummerierung – wird beim Tippen formatiert angezeigt und als HTML gesendet), Datei anfügen, Weiterleiten mit Anlagen, Senden-Schaltfläche links, Von/An/Cc/Bcc, Adressbuch, Namen überprüfen, AutoVervollständigen aus den Kontakten, Kontaktgruppen, Signatur, Wichtigkeit hoch/niedrig, Lesebestätigung/Übermittlungsbestätigung, „Antworten an“, Übermittlung verzögern („Nicht senden vor“, über den Postausgang), Visitenkarte einfügen, Entwürfe, Speichern als .eml, Nachfrage „Änderungen speichern?“ |
-| **Kalender** | Datumsnavigator (zwei Monate), Tag/Arbeitswoche/Woche/Monat, Heute, Nächste 7 Tage, Arbeitszeit hervorgehoben, Jetzt-Linie, überlappende Termine nebeneinander, ganztägige Ereignisse, Kalender ein-/ausblenden, Termin und Besprechung (Teilnehmer), Terminplanungs-Assistent (Frei/Gebucht-Raster für Organisator und Teilnehmer, AutoAuswahl des nächsten freien Zeitraums, Termin per Klick ins Raster verschieben; Teilnehmer über Microsoft 365 `getSchedule`), Serientermine (täglich, wöchentlich mit Wochentagen, monatlich, jährlich, mit/ohne Enddatum), Besprechungsanfragen annehmen/mit Vorbehalt/ablehnen (Microsoft 365), Anzeigen als, Erinnerung, Kategorien |
-| **Regeln** | „Regeln und Benachrichtigungen“: Bedingung (Absender, Betreff, Empfänger, Text enthält) → Aktion (verschieben, als gelesen markieren, kennzeichnen, Kategorie, löschen); gelten für neue Nachrichten nach jedem Senden/Empfangen, „Regeln jetzt anwenden“ für den ganzen Posteingang |
-| **Automatische Antworten** | Abwesenheitsnotiz mit Zeitraum; Microsoft 365 mit getrennten Texten für intern/extern, IMAP-Konten über ManageSieve (Sieve „vacation“, z. B. Dovecot/Pigeonhole, Cyrus, mailbox.org, Posteo) |
-| **Erinnerungen** | Erinnerungsfenster mit „Alle schließen“, „Element öffnen“, „Schließen“ und „Erneut erinnern“ |
-| **Personen** | Ansichten Personen, Visitenkarte und Liste; Kontaktfenster mit Visitenkarten-Vorschau; Favoriten; Kontaktgruppen (Verteilerlisten) mit eigenem Fenster, im An-Feld als Vorschlag und beim Senden aufgelöst; E-Mail/Besprechung an Kontakt |
-| **Notizen** | Haftnotizen in eigenen farbigen Fenstern, speichern sich selbst; Ansichten Symbol und Notizenliste; Farben |
-| **Journal** | Journaleinträge (Telefonanruf, Besprechung, E-Mail-Nachricht, Aufgabe, Dokument, Gespräch, Notiz) mit Zeitgeber, Liste nach Eintragstyp |
-| **Aufgaben** | Tabellenansicht mit „Klicken Sie hier, um eine neue Aufgabe zu erstellen“, Fällig am, In Ordner, Nachverfolgung (Heute, Morgen, Diese Woche, Nächste Woche, Kein Datum), Ansichten Einfache Liste/Aktiv/Erledigt/Heute/Überfällig, Aufgabenfenster |
+| **Mail** | HTML display (bold, italic, links, headings, lists, quotes, tables), open/save/save all attachments, conversation view, folder tree with subfolders, create/rename/delete folders, public/shared IMAP folders, rules, print (`Ctrl+P`), message list grouped by date (Today, Yesterday, weekday, Last Week …), All/Unread, sort by date/from/subject, search in the current folder or all mailboxes, reading pane right/bottom/off, message preview, Reply/Reply All/Forward, Delete → Deleted Items, Archive, Junk, Move (also drag & drop), Unread/Read, categories, follow-up flags, pin, double-click opens the message in its own window, original HTML in the browser, Quick Steps (Move to, To Manager, Team Email, Done, Reply & Delete, custom Quick Steps), Ignore and Clean Up conversations |
+| **Compose** | Formatting (bold, italic, underline, bullets, numbering – shown formatted while typing and sent as HTML), attach files, forward with attachments, Send button on the left, From/To/Cc/Bcc, address book, Check Names, auto-complete from contacts, contact groups, signature, high/low importance, read and delivery receipts, "Reply to", Delay Delivery ("Do not deliver before", via the Outbox), insert business card, drafts, save as .eml, "Want to save your changes?" |
+| **Calendar** | Date navigator (two months), Day/Work Week/Week/Month, Today, Next 7 Days, working hours highlighted, current-time line, overlapping appointments side by side, all-day events, show/hide calendars, appointments and meetings (attendees), Scheduling Assistant (free/busy grid for organiser and attendees, AutoPick of the next free slot, click the grid to move the meeting; attendees via Microsoft 365 `getSchedule`), recurring appointments (daily, weekly on weekdays, monthly, yearly, with/without end date), accept/tentative/decline meeting requests (Microsoft 365), Show As, reminders, categories |
+| **Rules** | "Rules and Alerts": condition (sender, subject, recipient, body contains) → action (move, mark as read, flag, category, delete); applied to new messages after every Send/Receive, "Run Rules Now" for the whole Inbox |
+| **Automatic Replies** | Out-of-office reply with a date range; Microsoft 365 with separate internal/external texts, IMAP accounts via ManageSieve (Sieve "vacation", e.g. Dovecot/Pigeonhole, Cyrus, mailbox.org, Posteo) |
+| **Reminders** | Reminder window with Dismiss All, Open Item, Dismiss and Snooze |
+| **People** | People, Business Card and List views; contact window with business card preview; favourites; contact groups (distribution lists) with their own window, suggested in the To field and expanded on send; email/meeting to a contact |
+| **Notes** | Sticky notes in their own coloured windows that save themselves; Icon and Notes List views; colours |
+| **Journal** | Journal entries (phone call, meeting, e-mail message, task, document, conversation, note) with a timer, list by entry type |
+| **Tasks** | Table view with "Click here to add a new Task", due date, folder, follow-up (Today, Tomorrow, This Week, Next Week, No Date), views Simple List/Active/Completed/Today/Overdue, task window |
 
-Tastenkombinationen wie beim Vorbild: `Strg+N` neues Element, `Strg+R` / `Strg+Umschalt+R` antworten / allen antworten, `Strg+F` weiterleiten, `Entf` löschen, `Strg+Q` / `Strg+U` gelesen / ungelesen, `Einfg` kennzeichnen, `Strg+E` suchen, `Alt+S` senden, `Strg+1…4` Module, `Strg+5` Notizen, `Strg+8` Journal, `Strg+B/I/U` fett/kursiv/unterstrichen, `Strg+P` drucken, `F9` Senden/Empfangen, `Strg+F1` Menüband. Notizen und Journal erreicht man über „···“ in der Modulleiste.
+Keyboard shortcuts as in the original: `Ctrl+N` new item, `Ctrl+R` / `Ctrl+Shift+R` reply / reply all, `Ctrl+F` forward, `Del` delete, `Ctrl+Q` / `Ctrl+U` mark read / unread, `Insert` flag, `Ctrl+E` search, `Alt+S` send, `Ctrl+1…4` modules, `Ctrl+5` notes, `Ctrl+8` journal, `Ctrl+B/I/U` bold/italic/underline, `Ctrl+P` print, `F9` Send/Receive, `Ctrl+F1` ribbon. Notes and Journal are reached via "···" in the navigation bar.
 
-## Konten
+## Accounts
 
-* **Lokales Postfach** – immer vorhanden, mit Beispieldaten; funktioniert komplett offline.
-* **IMAP/SMTP** – jedes Postfach; für Gmail, GMX, WEB.DE, T-Online, iCloud, Posteo, Yahoo, mailbox.org, freenet und AOL werden die Server automatisch eingetragen. IMAP über SSL/TLS (993), SMTP über STARTTLS (587) oder SSL/TLS (465). Kalender, Kontakte und Aufgaben werden bei IMAP-Konten lokal gespeichert.
-* **Microsoft 365 / Outlook.com** – über Microsoft Graph: E-Mail (mit Unterordnern), Kalender, Kontakte und Microsoft To Do werden synchronisiert; Änderungen gehen direkt an den Server.
-* **Freigegebene Postfächer (Microsoft 365)** – *Datei → Kontoeinstellungen → Freigegebenes Postfach hinzufügen…*; erscheinen als eigenes Postfach im Ordnerbereich (E-Mail, Kalender, Kontakte) und nutzen die Anmeldung des eigenen Kontos.
+* **Local mailbox** – always there, with sample data; works completely offline.
+* **IMAP/SMTP** – any mailbox; servers are filled in automatically for Gmail, GMX, WEB.DE, T-Online, iCloud, Posteo, Yahoo, mailbox.org, freenet and AOL. IMAP over SSL/TLS (993), SMTP over STARTTLS (587) or SSL/TLS (465). Calendar, contacts and tasks of IMAP accounts are stored locally.
+* **Microsoft 365 / Outlook.com** – via Microsoft Graph: mail (with subfolders), calendar, contacts and Microsoft To Do are synchronised; changes go straight to the server.
+* **Shared mailboxes (Microsoft 365)** – *File → Account Settings → Add Shared Mailbox…*; they appear as a mailbox of their own in the folder pane (mail, calendar, contacts) and use your own sign-in.
 
-### Microsoft-Anmeldung einrichten
+### Setting up Microsoft sign-in
 
-OpenLook nutzt den OAuth-Gerätecode-Flow (kein Redirect, kein Client-Secret):
+OpenLook uses the OAuth device code flow (no redirect, no client secret):
 
-1. Im [Entra Admin Center](https://entra.microsoft.com) → *App-Registrierungen* → *Neue Registrierung*.
-   Kontotyp: „Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten“.
-2. Unter *Authentifizierung* „Öffentliche Clientflows zulassen“ aktivieren.
-3. Unter *API-Berechtigungen* (Microsoft Graph, delegiert) hinzufügen:
+1. In the [Entra admin center](https://entra.microsoft.com) → *App registrations* → *New registration*.
+   Account type: "Accounts in any organizational directory and personal Microsoft accounts".
+2. Under *Authentication*, enable "Allow public client flows".
+3. Under *API permissions* (Microsoft Graph, delegated) add
    `User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite MailboxSettings.ReadWrite offline_access`,
-   für freigegebene Postfächer zusätzlich `Mail.ReadWrite.Shared Mail.Send.Shared Calendars.ReadWrite.Shared Contacts.ReadWrite.Shared`.
-4. Die *Anwendungs-ID (Client-ID)* als Umgebungsvariable setzen und OpenLook starten:
+   and for shared mailboxes also `Mail.ReadWrite.Shared Mail.Send.Shared Calendars.ReadWrite.Shared Contacts.ReadWrite.Shared`.
+4. Set the *Application (client) ID* as an environment variable and start OpenLook:
 
 ```sh
 export OPENLOOK_GRAPH_CLIENT_ID=<client-id>
 cargo run --release
 ```
 
-Dann *Datei → Konto hinzufügen → Erweiterte Optionen → Microsoft 365*, den angezeigten Code auf der Microsoft-Seite eingeben – fertig.
+Then *File → Add Account → Advanced options → Microsoft 365*, enter the code shown on Microsoft's page – done.
 
-## Bauen
+## Building
 
-Voraussetzung ist ein aktuelles [Rust](https://rustup.rs) (stable). Bisher nur unter Linux und als Windows-Version unter Wine gestartet; macOS sollte ebenso bauen, wurde aber noch nie ausprobiert.
+You need a current [Rust](https://rustup.rs) (stable). So far it has only been run on Linux and, as the Windows build, under Wine; macOS should build as well but has never been tried.
 
-Windows-Programm von Linux aus bauen (MinGW):
+Building the Windows program on Linux (MinGW):
 
 ```sh
 rustup target add x86_64-pc-windows-gnu
 sudo apt install gcc-mingw-w64-x86-64
 cargo build --release --target x86_64-pc-windows-gnu   # → target/x86_64-pc-windows-gnu/release/openlook.exe
 ```
- Unter Windows wird automatisch die Systemschrift Segoe UI verwendet. Unter Linux werden zur Laufzeit die üblichen Desktop-Bibliotheken benötigt (OpenGL, `libxkbcommon-x11` bzw. Wayland).
 
-| Variable | Standard | Bedeutung |
+On Windows the system font Segoe UI is used automatically. On Linux the usual desktop libraries are needed at run time (OpenGL, `libxkbcommon-x11` or Wayland).
+
+| Variable | Default | Meaning |
 |---|---|---|
-| `OPENLOOK_DB` | `<Datenverzeichnis>/OpenLook/openlook.db` | Pfad der Datenbank |
-| `OPENLOOK_GRAPH_CLIENT_ID` | – | Client-ID für die Microsoft-Anmeldung |
-| `OPENLOOK_GRAPH_TENANT` | `common` | `common`, `organizations`, `consumers` oder Tenant-ID |
-| `OPENLOOK_SYNC_MINUTES` | `5` | Intervall für automatisches Senden/Empfangen |
-| `OPENLOOK_CA_FILE` | – | Zusätzliche CA-Zertifikate (PEM) für Mailserver mit eigener Zertifizierungsstelle |
-| `OPENLOOK_GRAPH_URL` | `https://graph.microsoft.com/v1.0` | Graph-Endpunkt (z. B. für nationale Clouds) |
+| `OPENLOOK_DB` | `<data dir>/OpenLook/openlook.db` | Database path |
+| `OPENLOOK_GRAPH_CLIENT_ID` | – | Client ID for Microsoft sign-in |
+| `OPENLOOK_GRAPH_TENANT` | `common` | `common`, `organizations`, `consumers` or a tenant ID |
+| `OPENLOOK_SYNC_MINUTES` | `5` | Interval for automatic Send/Receive |
+| `OPENLOOK_CA_FILE` | – | Extra CA certificates (PEM) for mail servers with their own certificate authority |
+| `OPENLOOK_GRAPH_URL` | `https://graph.microsoft.com/v1.0` | Graph endpoint (e.g. for national clouds) |
 
 ## Tests
 
 ```sh
-cargo test                       # Unit-Tests + Microsoft-365-Provider gegen einen nachgebauten Graph-Server
+cargo test                       # unit tests + the Microsoft 365 provider against a simulated Graph server
 ```
 
-Ende-zu-Ende gegen einen echten IMAP/SMTP-Server (Senden mit Anlage, Abrufen, Flags, Ordner und Unterordner, Papierkorb, Regeln, öffentliche Ordner mit `OPENLOOK_IT_PUBLIC_FOLDER`, Abwesenheitsnotiz über ManageSieve mit echter automatischer Antwort an ein zweites Konto `OPENLOOK_IT_USER2/PASSWORD2/ADDRESS2`):
+End-to-end against a real IMAP/SMTP server (send with attachment, fetch, flags, folders and subfolders, Deleted Items, rules, public folders with `OPENLOOK_IT_PUBLIC_FOLDER`, automatic replies via ManageSieve with a real auto-reply to a second account `OPENLOOK_IT_USER2/PASSWORD2/ADDRESS2`):
 
 ```sh
 OPENLOOK_IT_HOST=mail.example.org OPENLOOK_IT_USER=… OPENLOOK_IT_PASSWORD=… OPENLOOK_IT_ADDRESS=… \
   cargo test -- --ignored imap_end_to_end
 ```
 
-Schlüsselbund (braucht einen laufenden Secret Service bzw. die Windows-Anmeldeinformationsverwaltung):
+Keychain (needs a running Secret Service or the Windows Credential Manager):
 
 ```sh
 cargo test -- --ignored keyring_roundtrip
 ```
 
-Geprüft wurde: Linux (X11) nativ; die Windows-Version unter Wine (alle Tests, Schlüsselbund, IMAP-Ende-zu-Ende, Oberfläche); IMAP/SMTP gegen Dovecot/Postfix; Microsoft 365 gegen einen Graph-Nachbau.
-
-## Aufbau
+## Code layout
 
 ```
 src/
-  main.rs            Start: Datenbank, Tokio-Runtime, Hauptfenster
+  main.rs            start-up: database, Tokio runtime, main window
   ui/
-    mod.rs           Hauptfenster: Menüband, Ordnerbereich, Statusleiste, Fensterverwaltung
-    chrome.rs        Titelleiste, Menüband-Bausteine, native Unterfenster
-    theme.rs         Designs „Bunt“ und „Schwarz“
-    mail.rs          E-Mail-Modul    compose.rs   Nachrichtenfenster
-    calendar.rs      Kalender + Terminfenster      reminders.rs Erinnerungen
-    people.rs        Personen + Kontaktfenster     tasks.rs     Aufgaben + Aufgabenfenster
-    notes.rs         Notizen + Journal             html.rs      HTML-Anzeige, Editor-Formatierung
-    rules_ui.rs      Regeln-Fenster                quicksteps.rs QuickSteps
-    groups.rs        Kontaktgruppen                todobar.rs   To-Do-Leiste
-    scheduling.rs    Terminplanungs-Assistent
-    icons.rs         Fluent-Symbole (erzeugt von tools/gen_icons.py)
-    backstage.rs     Datei-Backstage, Optionen, „Konto hinzufügen“, automatische Antworten
-  providers/         imap.rs (IMAP/SMTP), graph.rs (Microsoft Graph), sieve.rs (ManageSieve), mod.rs (Verteilung)
-  conversation.rs    Unterhaltungen aufräumen/ignorieren
-  rules.rs           Regel-Engine
-  recur.rs           Serienmuster von Terminen
-  secrets.rs         Schlüsselbund des Betriebssystems
-  db.rs              SQLite-Schema und Abfragen
-  mail.rs            MIME-Parsing, HTML→Text
-  seed.rs            Beispieldaten des lokalen Postfachs
+    mod.rs           main window: ribbon, folder pane, status bar, window management
+    chrome.rs        title bar, ribbon building blocks, native child windows
+    theme.rs         Colorful and Black themes
+    mail.rs          mail module                   compose.rs    message window
+    calendar.rs      calendar + appointment window  reminders.rs  reminders
+    people.rs        people + contact window        tasks.rs      tasks + task window
+    notes.rs         notes + journal                html.rs       HTML display, editor formatting
+    rules_ui.rs      rules window                   quicksteps.rs Quick Steps
+    groups.rs        contact groups                 todobar.rs    To-Do Bar
+    scheduling.rs    Scheduling Assistant
+    icons.rs         icons (generated by tools/gen_icons.py)
+    backstage.rs     File backstage, options, Add Account, automatic replies
+  providers/         imap.rs (IMAP/SMTP), graph.rs (Microsoft Graph), sieve.rs (ManageSieve), mod.rs (dispatch)
+  conversation.rs    clean up / ignore conversations
+  rules.rs           rule engine
+  recur.rs           recurrence patterns
+  secrets.rs         operating-system keychain
+  db.rs              SQLite schema and queries
+  mail.rs            MIME parsing, HTML → text
+  seed.rs            sample data of the local mailbox
 ```
 
-Die Oberfläche liest nur aus der lokalen Datenbank; alles mit Netzwerkzugriff läuft im Hintergrund, damit das Fenster nie hängt. Symbole: [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT, Microsoft), ergänzend [Phosphor Icons](https://phosphoricons.com) (MIT).
+The UI only reads from the local database; everything that touches the network runs in the background so the window never freezes.
 
-## Sicherheit
+## Security
 
-IMAP-Kennwörter und Microsoft-Tokens werden im Schlüsselbund des Betriebssystems gespeichert (Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund, unter Linux Secret Service/GNOME Keyring/KWallet). Ältere Installationen werden beim Start automatisch umgestellt. Ist kein Schlüsselbund verfügbar, bleiben die Daten in der lokalen Datenbank.
+IMAP passwords and Microsoft tokens are kept in the operating system's keychain (Windows Credential Manager, macOS Keychain, Secret Service/GNOME Keyring/KWallet on Linux). If no keychain is available, they stay in the local database.
 
-## Bekannte Grenzen
+## Known limitations
 
-* Die Formatierung beim Verfassen ist auf fett, kursiv, unterstrichen und Listen beschränkt (keine Schriftarten, Farben oder Bilder im Text).
-* Im Lesebereich werden Bilder in HTML-Mails als Platzhalter angezeigt; das Original öffnet sich per 🌐 im Browser.
-* Pro Ordner werden die neuesten 100 Nachrichten zwischengespeichert.
-* Besprechungsantworten gibt es nur für Microsoft-365-Konten. Abwesenheitsnotizen für IMAP brauchen einen Server mit ManageSieve (Port 4190); der Zeitraum gilt dort tagesgenau.
-* Kontaktgruppen werden lokal gespeichert.
-* Frei/Gebucht-Zeiten anderer Personen liefert nur Microsoft 365; bei IMAP-Konten zeigt der Terminplanungs-Assistent nur den eigenen Kalender.
-* Regeln laufen im Client („nur auf diesem Computer“), also nur, wenn OpenLook geöffnet ist.
-* Öffentliche Ordner von Exchange sind über Microsoft Graph nicht zugänglich (Microsoft bietet dafür keine Graph-Schnittstelle); öffentliche IMAP-Ordner werden angezeigt.
-* Notizen und Journal werden lokal gespeichert (Microsoft Graph bietet keine Schnittstelle für Notizen und Journal).
+* Formatting while composing is limited to bold, italic, underline and lists (no fonts, colours or inline images).
+* Images in HTML mail are shown as placeholders in the reading pane; the original opens in the browser.
+* The newest 100 messages per folder are cached.
+* Meeting responses are only available for Microsoft 365 accounts. Automatic replies for IMAP need a server with ManageSieve (port 4190); the date range is per day there.
+* Contact groups are stored locally.
+* Free/busy times of other people come only from Microsoft 365; for IMAP accounts the Scheduling Assistant shows only your own calendar.
+* Rules run in the client ("on this computer only"), i.e. only while OpenLook is open.
+* Exchange public folders are not reachable via Microsoft Graph (Microsoft offers no Graph API for them); public IMAP folders are shown.
+* Notes and journal are stored locally (Microsoft Graph has no API for them).
 
-## Lizenz und Hinweise
+## License
 
-OpenLook ist gemeinfrei ([The Unlicense](LICENSE)): Jeder darf den Code ohne Bedingungen nutzen, ändern, weitergeben und verkaufen – privat wie kommerziell, auch ohne Namensnennung. Ausgenommen sind nur die Symbole; sie stammen aus den [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT, © Microsoft, siehe `assets/icons/LICENSE`) und [Phosphor Icons](https://phosphoricons.com) (MIT).
+OpenLook is public domain ([The Unlicense](LICENSE)): anyone may use, change, share and sell the code without any conditions – privately or commercially, without attribution. The icons are generated from [System UIcons](https://github.com/CoreyGinnivan/system-uicons) by Corey Ginnivan, which are public domain as well (Unlicense); the reply arrows were drawn for OpenLook.
 
-OpenLook ist ein unabhängiges Open-Source-Projekt und steht in keiner Verbindung zu Microsoft. Microsoft, Outlook und Microsoft 365 sind Marken der Microsoft Corporation.
+OpenLook is an independent open-source project and is not affiliated with Microsoft. Microsoft, Outlook and Microsoft 365 are trademarks of Microsoft Corporation.

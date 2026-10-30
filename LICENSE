@@ -23,6 +23,5 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 For more information, please refer to <https://unlicense.org>
 
-The icons in assets/icons are not covered by this dedication: they are
-Fluent UI System Icons by Microsoft, licensed under the MIT License
-(see assets/icons/LICENSE).
+The icons in assets/icons are generated from System UIcons by Corey Ginnivan,
+which are public domain as well (Unlicense, see assets/icons/LICENSE).
