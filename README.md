@@ -2,7 +2,7 @@
 
 # OpenLook
 
-**Der freie Desktop-Client für E-Mail, Kalender, Kontakte und Aufgaben – so bedienbar wie das klassische Outlook.**
+**Ein freier Klon eines bekannten Mail-Clients – E-Mail, Kalender, Kontakte und Aufgaben in einem Desktop-Programm.**
 
 Ein einziges natives Programm in Rust · kein Server · kein Browser · Open Source (MIT)
 
@@ -10,14 +10,18 @@ Ein einziges natives Programm in Rust · kein Server · kein Browser · Open Sou
 ![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-blue)
 ![Plattformen](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-lightgrey)
 ![IMAP · SMTP · Microsoft 365](https://img.shields.io/badge/IMAP%20%C2%B7%20SMTP%20%C2%B7%20Microsoft%20365-0078D4)
+![Status: ungetestet](https://img.shields.io/badge/Status-ungetestet-red)
 
 <img src="docs/screenshots/mail.png" alt="OpenLook – E-Mail mit Ordnerbereich, Nachrichtenliste und Lesebereich" width="100%">
 
 </div>
 
+> [!WARNING]
+> **OpenLook ist noch ungetestet.** Das Programm ist bisher nicht im Alltag erprobt und nur in einer Testumgebung gelaufen (Linux; Windows-Version unter Wine; IMAP/SMTP gegen einen lokalen Testserver; Microsoft 365 nur gegen einen nachgebauten Server). Mit einem echten Microsoft-365-Konto, auf echtem Windows und auf macOS wurde es noch nie ausprobiert. Bitte nicht als einziges Programm für wichtige Postfächer verwenden und vorher Sicherungen anlegen. Fehlerberichte sind willkommen.
+
 ## Warum OpenLook?
 
-* **Vertraut ab der ersten Minute** – Menüband, Ordnerbereich, Nachrichtenliste, Lesebereich, Backstage, eigene Fenster für Nachrichten und Termine, dieselben Tastenkürzel (`Strg+N`, `Strg+R`, `F9` …) wie im klassischen Outlook.
+* **Vertraut ab der ersten Minute** – Menüband, Ordnerbereich, Nachrichtenliste, Lesebereich, Backstage, eigene Fenster für Nachrichten und Termine, dieselben Tastenkürzel (`Strg+N`, `Strg+R`, `F9` …) wie beim Vorbild.
 * **Alles in einem Programm** – E-Mail, Kalender mit Terminplanungs-Assistent, Personen mit Kontaktgruppen, Aufgaben, Notizen und Journal.
 * **Jedes Postfach** – IMAP/SMTP (Gmail, GMX, WEB.DE, T-Online, Posteo, mailbox.org, iCloud …) und Microsoft 365 / Outlook.com über Microsoft Graph, auch freigegebene Postfächer.
 * **Schnell und sparsam** – eine einzelne ausführbare Datei, lokaler SQLite-Cache, Netzwerkzugriffe im Hintergrund; Kennwörter im Schlüsselbund des Betriebssystems.
@@ -50,7 +54,7 @@ OpenLook startet mit einem lokalen Postfach samt Beispieldaten. Ein echtes Konto
 * **Ordnerbereich** mit Favoriten, Ordnerbaum pro Konto (Ungelesen-Zähler, Entwürfe in [ ]) und Suchordnern (Ungelesene E-Mail, Zur Nachverfolgung gekennzeichnet, E-Mail mit Anlagen, Wichtige E-Mail), minimierbar, unten die Modulleiste *E-Mail · Kalender · Personen · Aufgaben*.
 * **To-Do-Leiste** (Ansicht → To-Do-Leiste): Kalender mit kommenden Terminen, Personen-Favoriten und Aufgaben.
 * **Statusleiste** mit Elemente/Ungelesen, Sync-Status, Verbindungsstatus und Zoom-Regler.
-* **Eigene Betriebssystem-Fenster** wie in Outlook für: Nachricht lesen, Nachricht verfassen, Termin/Besprechung, Kontakt, Aufgabe, Optionen, Konto hinzufügen und Erinnerungen.
+* **Eigene Betriebssystem-Fenster** wie beim Vorbild für: Nachricht lesen, Nachricht verfassen, Termin/Besprechung, Kontakt, Aufgabe, Optionen, Konto hinzufügen und Erinnerungen.
 * Designs **Bunt** und **Schwarz**.
 
 ### Module
@@ -68,7 +72,7 @@ OpenLook startet mit einem lokalen Postfach samt Beispieldaten. Ein echtes Konto
 | **Journal** | Journaleinträge (Telefonanruf, Besprechung, E-Mail-Nachricht, Aufgabe, Dokument, Gespräch, Notiz) mit Zeitgeber, Liste nach Eintragstyp |
 | **Aufgaben** | Tabellenansicht mit „Klicken Sie hier, um eine neue Aufgabe zu erstellen“, Fällig am, In Ordner, Nachverfolgung (Heute, Morgen, Diese Woche, Nächste Woche, Kein Datum), Ansichten Einfache Liste/Aktiv/Erledigt/Heute/Überfällig, Aufgabenfenster |
 
-Tastenkombinationen wie in Outlook: `Strg+N` neues Element, `Strg+R` / `Strg+Umschalt+R` antworten / allen antworten, `Strg+F` weiterleiten, `Entf` löschen, `Strg+Q` / `Strg+U` gelesen / ungelesen, `Einfg` kennzeichnen, `Strg+E` suchen, `Alt+S` senden, `Strg+1…4` Module, `Strg+5` Notizen, `Strg+8` Journal, `Strg+B/I/U` fett/kursiv/unterstrichen, `Strg+P` drucken, `F9` Senden/Empfangen, `Strg+F1` Menüband. Notizen und Journal erreicht man wie in Outlook über „···“ in der Modulleiste.
+Tastenkombinationen wie beim Vorbild: `Strg+N` neues Element, `Strg+R` / `Strg+Umschalt+R` antworten / allen antworten, `Strg+F` weiterleiten, `Entf` löschen, `Strg+Q` / `Strg+U` gelesen / ungelesen, `Einfg` kennzeichnen, `Strg+E` suchen, `Alt+S` senden, `Strg+1…4` Module, `Strg+5` Notizen, `Strg+8` Journal, `Strg+B/I/U` fett/kursiv/unterstrichen, `Strg+P` drucken, `F9` Senden/Empfangen, `Strg+F1` Menüband. Notizen und Journal erreicht man über „···“ in der Modulleiste.
 
 ## Konten
 
@@ -98,7 +102,7 @@ Dann *Datei → Konto hinzufügen → Erweiterte Optionen → Microsoft 365*, de
 
 ## Bauen
 
-Voraussetzung ist ein aktuelles [Rust](https://rustup.rs) (stable). Getestet unter Linux und mit der Windows-Version unter Wine; macOS sollte ebenso bauen, ist aber noch ungetestet.
+Voraussetzung ist ein aktuelles [Rust](https://rustup.rs) (stable). Bisher nur unter Linux und als Windows-Version unter Wine gestartet; macOS sollte ebenso bauen, wurde aber noch nie ausprobiert.
 
 Windows-Programm von Linux aus bauen (MinGW):
 
@@ -181,9 +185,9 @@ IMAP-Kennwörter und Microsoft-Tokens werden im Schlüsselbund des Betriebssyste
 * Besprechungsantworten gibt es nur für Microsoft-365-Konten. Abwesenheitsnotizen für IMAP brauchen einen Server mit ManageSieve (Port 4190); der Zeitraum gilt dort tagesgenau.
 * Kontaktgruppen werden lokal gespeichert.
 * Frei/Gebucht-Zeiten anderer Personen liefert nur Microsoft 365; bei IMAP-Konten zeigt der Terminplanungs-Assistent nur den eigenen Kalender.
-* Regeln laufen im Client (wie Outlooks „nur auf diesem Computer“-Regeln), also nur, wenn OpenLook geöffnet ist.
+* Regeln laufen im Client („nur auf diesem Computer“), also nur, wenn OpenLook geöffnet ist.
 * Öffentliche Ordner von Exchange sind über Microsoft Graph nicht zugänglich (Microsoft bietet dafür keine Graph-Schnittstelle); öffentliche IMAP-Ordner werden angezeigt.
-* Notizen und Journal werden lokal gespeichert (Microsoft Graph bietet keine Schnittstelle für Outlook-Notizen und -Journal).
+* Notizen und Journal werden lokal gespeichert (Microsoft Graph bietet keine Schnittstelle für Notizen und Journal).
 
 ## Lizenz und Hinweise
 
