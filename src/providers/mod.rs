@@ -527,6 +527,67 @@ pub async fn save_event(state: &AppState, mut e: Event) -> Result<i64> {
 }
 
 /// Answer a meeting request (Microsoft 365): "accept", "tentativelyAccept" or "decline".
+/// A busy block in the Terminplanungs-Assistent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Busy {
+    /// UTC "YYYY-MM-DDTHH:MM:SSZ"
+    pub start: String,
+    pub end: String,
+    /// free | tentative | busy | oof | workingElsewhere
+    pub show_as: String,
+}
+
+/// Free/busy information of one person; `busy` is None when unknown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FreeBusy {
+    pub email: String,
+    pub busy: Option<Vec<Busy>>,
+}
+
+/// Free/busy times for the organizer (from the local calendar) and the
+/// attendees (Microsoft 365 `getSchedule`; unknown for other accounts).
+pub async fn free_busy(
+    state: &AppState,
+    account_id: i64,
+    emails: &[String],
+    from: &str,
+    to: &str,
+) -> Result<Vec<FreeBusy>> {
+    let acc =
+        db::get_account(&state.db(), account_id)?.ok_or_else(|| anyhow!("Konto nicht gefunden"))?;
+    let own = |e: &str| e.eq_ignore_ascii_case(&acc.email);
+    let others: Vec<String> = emails.iter().filter(|e| !own(e)).cloned().collect();
+    let remote = if acc.kind == AccountKind::Graph && !others.is_empty() {
+        graph::get_schedule(state, account_id, &others, from, to).await?
+    } else {
+        vec![]
+    };
+    let local: Vec<Busy> = db::list_events(&state.db(), from, to)?
+        .into_iter()
+        .filter(|e| e.account_id == account_id && e.show_as != "free")
+        .filter(|e| e.end.as_str() > from && e.start.as_str() < to)
+        .map(|e| Busy {
+            start: e.start,
+            end: e.end,
+            show_as: e.show_as,
+        })
+        .collect();
+    Ok(emails
+        .iter()
+        .map(|e| FreeBusy {
+            email: e.clone(),
+            busy: if own(e) {
+                Some(local.clone())
+            } else {
+                remote
+                    .iter()
+                    .find(|r| r.email.eq_ignore_ascii_case(e))
+                    .and_then(|r| r.busy.clone())
+            },
+        })
+        .collect())
+}
+
 pub async fn respond_event(state: &AppState, id: i64, answer: &str) -> Result<()> {
     let mut e = db::get_event(&state.db(), id)?.ok_or_else(|| anyhow!("Termin nicht gefunden"))?;
     if kind_of(state, e.account_id)? != AccountKind::Graph || e.remote_id.is_empty() {

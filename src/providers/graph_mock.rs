@@ -112,6 +112,20 @@ async fn handler(State(log): State<Log>, method: Method, uri: Uri, body: Bytes) 
         }]})),
         ("POST", "/me/events") => ok(json!({ "id": "E-NEW" })),
         ("POST", "/me/events/E1/accept") => StatusCode::ACCEPTED.into_response(),
+        ("POST", "/me/calendar/getSchedule") => ok(json!({ "value": [
+            {
+                "scheduleId": "lea@fabrikam.com",
+                "scheduleItems": [{
+                    "status": "busy",
+                    "start": { "dateTime": "2026-11-02T11:00:00.0000000", "timeZone": "UTC" },
+                    "end": { "dateTime": "2026-11-02T12:00:00.0000000", "timeZone": "UTC" }
+                }]
+            },
+            {
+                "scheduleId": "extern@example.org",
+                "error": { "message": "Free/busy information is not available", "responseCode": "ErrorMailRecipientNotFound" }
+            }
+        ]})),
         ("GET", "/me/contacts") => ok(json!({ "value": [{
             "id": "C1",
             "displayName": "Lea Fischer",
@@ -376,6 +390,31 @@ async fn microsoft_365_against_mock_graph() {
             .response,
         "accepted"
     );
+
+    // --- Terminplanungs-Assistent: own calendar locally, others via getSchedule
+    let people: Vec<String> = ["me@contoso.com", "lea@fabrikam.com", "extern@example.org"]
+        .map(String::from)
+        .to_vec();
+    let fb = providers::free_busy(
+        &state,
+        acc,
+        &people,
+        "2026-11-02T00:00:00Z",
+        "2026-11-03T00:00:00Z",
+    )
+    .await
+    .unwrap();
+    let busy = |i: usize| fb[i].busy.clone().unwrap();
+    assert_eq!(busy(0)[0].start, "2026-11-02T09:00:00Z", "accepted meeting");
+    assert_eq!(busy(1)[0].end, "2026-11-02T12:00:00Z");
+    assert_eq!(busy(1)[0].show_as, "busy");
+    assert_eq!(fb[2].busy, None, "no information");
+    let req = &requests(&log, "POST", "/me/calendar/getSchedule")[0].1;
+    assert_eq!(
+        req["schedules"],
+        json!(["lea@fabrikam.com", "extern@example.org"])
+    );
+    assert_eq!(req["startTime"]["dateTime"], "2026-11-02T00:00:00");
 
     // --- automatic replies
     let mut ar = providers::graph::get_auto_reply(&state, acc).await.unwrap();

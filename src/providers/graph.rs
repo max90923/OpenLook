@@ -786,6 +786,53 @@ pub async fn respond_event(
     Ok(())
 }
 
+/// Busy times of people for the Terminplanungs-Assistent (`getSchedule`).
+/// `from`/`to` are UTC "YYYY-MM-DDTHH:MM:SSZ".
+pub async fn get_schedule(
+    state: &AppState,
+    account_id: i64,
+    emails: &[String],
+    from: &str,
+    to: &str,
+) -> Result<Vec<super::FreeBusy>> {
+    let utc = |s: &str| json!({ "dateTime": s.trim_end_matches('Z'), "timeZone": "UTC" });
+    let v = call(
+        state,
+        account_id,
+        Method::POST,
+        "/me/calendar/getSchedule",
+        Some(json!({
+            "schedules": emails,
+            "startTime": utc(from),
+            "endTime": utc(to),
+            "availabilityViewInterval": 30,
+        })),
+    )
+    .await?;
+    Ok(v["value"]
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .map(|x| super::FreeBusy {
+            email: s(&x["scheduleId"]),
+            busy: x["error"].is_null().then(|| {
+                x["scheduleItems"]
+                    .as_array()
+                    .map(|a| a.as_slice())
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|i| super::Busy {
+                        start: graph_dt(&i["start"]),
+                        end: graph_dt(&i["end"]),
+                        show_as: s(&i["status"]),
+                    })
+                    .collect()
+            }),
+        })
+        .collect())
+}
+
 /// Automatic replies ("Abwesenheitsnotiz") of a Microsoft 365 mailbox.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AutoReply {

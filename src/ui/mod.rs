@@ -20,6 +20,7 @@ mod people;
 mod quicksteps;
 mod reminders;
 mod rules_ui;
+mod scheduling;
 mod tasks;
 mod theme;
 mod todobar;
@@ -96,6 +97,8 @@ pub enum Done {
     },
     /// Current automatic-reply settings of an account were loaded.
     AutoReply(i64, providers::graph::AutoReply),
+    /// Free/busy times for the Terminplanungs-Assistent with this key.
+    FreeBusy(String, Result<Vec<providers::FreeBusy>, String>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -453,6 +456,7 @@ impl App {
                 Done::DeviceCode { user_code, uri } => {
                     self.device_code = (!user_code.is_empty()).then_some((user_code, uri));
                 }
+                Done::FreeBusy(key, data) => self.free_busy_loaded(&key, data),
                 Done::AutoReply(account, data) => {
                     for w in &mut self.windows {
                         if let Win::AutoReply(a) = &mut w.win {

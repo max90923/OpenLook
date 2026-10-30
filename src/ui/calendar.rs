@@ -48,6 +48,8 @@ pub struct EventEditor {
     /// Series pattern being edited ("Serie" dialog).
     rec: Option<Recurrence>,
     show_series: bool,
+    /// Some = Terminplanungs-Assistent shown instead of the form.
+    pub(super) planner: Option<super::scheduling::Planner>,
 }
 
 impl EventEditor {
@@ -172,6 +174,7 @@ impl App {
             meeting,
             rec: None,
             show_series: false,
+            planner: None,
             start_date: start.date(),
             start_time: start.time(),
             end_date: if all_day { start.date() } else { end.date() },
@@ -197,6 +200,7 @@ impl App {
             meeting: !e.attendees.is_empty(),
             rec: Recurrence::parse(&e.recurrence),
             show_series: false,
+            planner: None,
             start_date: s.date(),
             start_time: s.time(),
             end_date,
@@ -931,6 +935,25 @@ impl App {
                         delete = true;
                     }
                 });
+                chrome::group(ui, &t, "Anzeigen", |ui| {
+                    for (planner, icon, label) in [
+                        (false, ph::CALENDAR_PLUS, "Termin"),
+                        (true, ph::GRID_FOUR, "Terminplanungs-\nAssistent"),
+                    ] {
+                        let r = chrome::large(ui, &t, icon, IC_BLUE, label, !ed.ev.all_day);
+                        if ed.planner.is_some() == planner {
+                            ui.painter().rect_stroke(
+                                r.rect,
+                                0,
+                                egui::Stroke::new(1.0_f32, t.button_down),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
+                        if r.clicked() {
+                            ed.planner = planner.then(Default::default);
+                        }
+                    }
+                });
                 chrome::group(ui, &t, "Teilnehmer", |ui| {
                     if chrome::large(
                         ui,
@@ -1045,6 +1068,27 @@ impl App {
                     });
                 });
             });
+            if let Some(p) = ed.planner.as_mut() {
+                let meeting = super::scheduling::Meeting {
+                    account_id: ed.ev.account_id,
+                    organizer: accounts
+                        .iter()
+                        .find(|a| a.id == ed.ev.account_id)
+                        .map(|a| a.email.clone())
+                        .unwrap_or_default(),
+                    attendees: &mut ed.ev.attendees,
+                    start_date: &mut ed.start_date,
+                    start_time: &mut ed.start_time,
+                    end_date: &mut ed.end_date,
+                    end_time: &mut ed.end_time,
+                };
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::symmetric(14, 10))
+                    .show(ui, |ui| {
+                        self.scheduling_ui(ui, p, meeting);
+                    });
+                return;
+            }
             egui::Frame::new()
                 .inner_margin(egui::Margin::symmetric(14, 10))
                 .show(ui, |ui| {
@@ -1378,7 +1422,7 @@ impl Opaque for Color32 {
     }
 }
 
-fn time_combo(ui: &mut egui::Ui, id: &str, t: &mut NaiveTime) {
+pub(super) fn time_combo(ui: &mut egui::Ui, id: &str, t: &mut NaiveTime) {
     egui::ComboBox::from_id_salt(id)
         .width(70.0)
         .selected_text(t.format("%H:%M").to_string())

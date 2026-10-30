@@ -41,6 +41,7 @@ MAP = [
     ("CALENDAR_BLANK", "calendar_month", BLUE),
     ("CALENDAR_CHECK", "calendar_checkmark", None),
     ("CALENDAR_DOTS", "calendar_week_numbers", BLUE),
+    ("GRID_FOUR", "calendar_person", BLUE),
     ("USERS_THREE", "calendar_people", None),
     ("SQUARE", "calendar_day", BLUE),
     ("COLUMNS", "calendar_work_week", BLUE),

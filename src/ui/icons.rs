@@ -189,6 +189,13 @@ static ICONS: &[Entry] = &[
         include_bytes!("../../assets/icons/calendar_dots_32.svg"),
     ),
     (
+        ph::GRID_FOUR,
+        "bytes://icons/grid_four_20.svg",
+        include_bytes!("../../assets/icons/grid_four_20.svg"),
+        "bytes://icons/grid_four_32.svg",
+        include_bytes!("../../assets/icons/grid_four_32.svg"),
+    ),
+    (
         ph::USERS_THREE,
         "bytes://icons/users_three_20.svg",
         include_bytes!("../../assets/icons/users_three_20.svg"),
