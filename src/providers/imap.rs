@@ -18,7 +18,7 @@ type Session = async_imap::Session<TlsStream<TcpStream>>;
 
 fn config(state: &AppState, account_id: i64) -> Result<ImapConfig> {
     let raw = crate::secrets::config(state, account_id)?;
-    serde_json::from_str(&raw).context("IMAP-Konfiguration ungültig")
+    serde_json::from_str(&raw).context("Invalid IMAP configuration")
 }
 
 /// Extra trusted CA certificates (PEM) from `OPENLOOK_CA_FILE`, e.g. for
@@ -33,7 +33,7 @@ pub(super) fn roots() -> Result<rustls::RootCertStore> {
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     if let Some(pem) = extra_ca_pem() {
         for cert in CertificateDer::pem_slice_iter(&pem) {
-            roots.add(cert.context("OPENLOOK_CA_FILE enthält kein gültiges Zertifikat")?)?;
+            roots.add(cert.context("OPENLOOK_CA_FILE does not contain a valid certificate")?)?;
         }
     }
     Ok(roots)
@@ -46,23 +46,18 @@ async fn connect(cfg: &ImapConfig) -> Result<Session> {
         .with_no_client_auth();
     let tcp = TcpStream::connect((cfg.imap_host.as_str(), cfg.imap_port))
         .await
-        .with_context(|| {
-            format!(
-                "Verbindung zu {}:{} fehlgeschlagen",
-                cfg.imap_host, cfg.imap_port
-            )
-        })?;
+        .with_context(|| format!("Could not connect to {}:{}", cfg.imap_host, cfg.imap_port))?;
     let name = rustls::pki_types::ServerName::try_from(cfg.imap_host.clone())?;
     let stream = TlsConnector::from(Arc::new(tls)).connect(name, tcp).await?;
     let mut client = async_imap::Client::new(stream);
     client
         .read_response()
         .await
-        .ok_or_else(|| anyhow!("IMAP-Server hat keine Begrüßung gesendet"))??;
+        .ok_or_else(|| anyhow!("The IMAP server did not send a greeting"))??;
     client
         .login(&cfg.username, &cfg.password)
         .await
-        .map_err(|(e, _)| anyhow!("IMAP-Anmeldung fehlgeschlagen: {e}"))
+        .map_err(|(e, _)| anyhow!("IMAP sign-in failed: {e}"))
 }
 
 fn folder_role(name: &str, attrs: &[NameAttribute]) -> &'static str {
@@ -80,24 +75,31 @@ fn folder_role(name: &str, attrs: &[NameAttribute]) -> &'static str {
     let last = n.rsplit(['/', '.']).next().unwrap_or(&n);
     match last {
         "inbox" => "inbox",
-        "sent" | "sent items" | "sent messages" | "gesendet" | "gesendete elemente"
-        | "gesendete objekte" => "sent",
-        "drafts" | "entwürfe" | "entwurf" => "drafts",
-        "trash" | "deleted" | "deleted items" | "papierkorb" | "gelöschte elemente" => "trash",
-        "junk" | "spam" | "junk-e-mail" | "junk e-mail" => "junk",
-        "archive" | "archiv" => "archive",
+        // English and German names used by common servers and clients.
+        "sent" | "sent items" | "sent messages" | "sent mail" | "gesendet"
+        | "gesendete elemente" | "gesendete objekte" => "sent",
+        "drafts" | "draft" | "entwürfe" | "entwurf" => "drafts",
+        "trash"
+        | "deleted"
+        | "deleted items"
+        | "deleted messages"
+        | "bin"
+        | "papierkorb"
+        | "gelöschte elemente" => "trash",
+        "junk" | "spam" | "junk email" | "junk-e-mail" | "junk e-mail" => "junk",
+        "archive" | "archives" | "archiv" => "archive",
         _ => "other",
     }
 }
 
 fn display_name(remote: &str, role: &str) -> String {
     match role {
-        "inbox" => "Posteingang".into(),
-        "sent" => "Gesendete Elemente".into(),
-        "drafts" => "Entwürfe".into(),
-        "trash" => "Gelöschte Elemente".into(),
-        "junk" => "Junk-E-Mail".into(),
-        "archive" => "Archiv".into(),
+        "inbox" => "Inbox".into(),
+        "sent" => "Sent Items".into(),
+        "drafts" => "Drafts".into(),
+        "trash" => "Deleted Items".into(),
+        "junk" => "Junk Email".into(),
+        "archive" => "Archive".into(),
         _ => remote.to_string(),
     }
 }
@@ -119,7 +121,7 @@ pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
         }
         let remote = n.name().to_string();
         let role = folder_role(&remote, n.attributes());
-        // Subfolders: "Kunden/Alpha" is "Alpha" below "Kunden". Folders below a
+        // Subfolders: "Customers/Alpha" is "Alpha" below "Customers". Folders below a
         // non-selectable parent (e.g. a public namespace) keep their full path.
         let delim = n.delimiter().unwrap_or("/");
         let (parent, leaf) = match remote.rsplit_once(delim) {
@@ -212,7 +214,7 @@ async fn sync_folder(
 fn remote_of(state: &AppState, message_id: i64) -> Result<(String, String)> {
     let c = state.db();
     let (uid, folder_id) = db::message_remote(&c, message_id)?;
-    let folder = db::get_folder(&c, folder_id)?.ok_or_else(|| anyhow!("Ordner fehlt"))?;
+    let folder = db::get_folder(&c, folder_id)?.ok_or_else(|| anyhow!("Folder missing"))?;
     Ok((uid, folder.remote_id))
 }
 
@@ -312,7 +314,7 @@ pub async fn send(
         .build()
         .send(msg.clone())
         .await
-        .context("SMTP-Versand fehlgeschlagen")?;
+        .context("Sending via SMTP failed")?;
 
     // Keep a copy in "Sent" (many servers do not do this automatically).
     let sent = db::folder_by_role(&state.db(), account_id, "sent")?;
@@ -322,7 +324,7 @@ pub async fn send(
             .append(&sent.remote_id, Some("(\\Seen)"), None, msg.formatted())
             .await
         {
-            tracing::warn!("Kopie in Gesendet fehlgeschlagen: {e}");
+            tracing::warn!("Could not save a copy to Sent Items: {e}");
         }
         s.logout().await.ok();
     }
@@ -389,7 +391,7 @@ pub async fn delete_folder(state: &AppState, account_id: i64, remote: &str) -> R
 /// Validate settings by logging in once.
 pub async fn test_login(cfg: &ImapConfig) -> Result<()> {
     if cfg.imap_host.is_empty() || cfg.username.is_empty() {
-        bail!("IMAP-Server und Benutzername sind erforderlich");
+        bail!("IMAP server and user name are required");
     }
     let mut s = connect(cfg).await?;
     s.logout().await.ok();
@@ -405,7 +407,10 @@ mod tests {
         assert_eq!(folder_role("INBOX", &[]), "inbox");
         assert_eq!(folder_role("INBOX.Sent", &[]), "sent");
         assert_eq!(folder_role("Gelöschte Elemente", &[]), "trash");
+        assert_eq!(folder_role("Deleted Items", &[]), "trash");
+        assert_eq!(folder_role("Papierkorb", &[]), "trash");
+        assert_eq!(folder_role("Junk Email", &[]), "junk");
         assert_eq!(folder_role("Whatever", &[NameAttribute::Junk]), "junk");
-        assert_eq!(folder_role("Projekte/2026", &[]), "other");
+        assert_eq!(folder_role("Projects/2026", &[]), "other");
     }
 }

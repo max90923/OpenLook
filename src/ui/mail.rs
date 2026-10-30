@@ -295,23 +295,20 @@ impl App {
                         .map(|m| m.id)
                         .collect()
                     };
-                    self.spawn(
-                        Some("All items marked as read."),
-                        move |st, _| async move {
-                            for id in ids {
-                                providers::patch_message(
-                                    &st,
-                                    id,
-                                    &MessagePatch {
-                                        is_read: Some(true),
-                                        ..Default::default()
-                                    },
-                                )
-                                .await?;
-                            }
-                            Ok(())
-                        },
-                    );
+                    self.spawn(Some("All items marked as read."), move |st, _| async move {
+                        for id in ids {
+                            providers::patch_message(
+                                &st,
+                                id,
+                                &MessagePatch {
+                                    is_read: Some(true),
+                                    ..Default::default()
+                                },
+                            )
+                            .await?;
+                        }
+                        Ok(())
+                    });
                 }
                 Act::OpenInBrowser(id) => {
                     let m = db::get_message(&self.st.db(), id).ok().flatten();
@@ -331,8 +328,8 @@ impl App {
                 }
                 Act::OpenAttachment(a) => {
                     let res = db::attachment_data(&self.st.db(), a.id).and_then(|data| {
-                        let dir =
-                            std::env::temp_dir().join(format!("openlook-attachments-{}", a.message_id));
+                        let dir = std::env::temp_dir()
+                            .join(format!("openlook-attachments-{}", a.message_id));
                         std::fs::create_dir_all(&dir)?;
                         let path = dir.join(safe_file_name(&a.name));
                         std::fs::write(&path, data)?;
@@ -340,9 +337,7 @@ impl App {
                     });
                     match res {
                         Ok(path) => super::open_external(&path.to_string_lossy()),
-                        Err(e) => {
-                            self.toast(format!("Could not open the attachment: {e:#}"), true)
-                        }
+                        Err(e) => self.toast(format!("Could not open the attachment: {e:#}"), true),
                     }
                 }
                 Act::SaveAttachment(a) => {
@@ -672,14 +667,7 @@ impl App {
             }
         });
         chrome::group(ui, &t, "Move", |ui| {
-            let r = chrome::large(
-                ui,
-                &t,
-                ph::FOLDER_SIMPLE,
-                IC_YELLOW,
-                "Move\n\u{E136}",
-                has,
-            );
+            let r = chrome::large(ui, &t, ph::FOLDER_SIMPLE, IC_YELLOW, "Move\n\u{E136}", has);
             if let Some(m) = &sel {
                 chrome::menu(&r, |ui| self.move_menu(ui, m, &mut acts));
             }
@@ -691,12 +679,8 @@ impl App {
                             acts.push(Act::CreateRule(m.id));
                         }
                     }
-                    if chrome::menu_item(
-                        ui,
-                        ph::FUNNEL_SIMPLE,
-                        IC_BLUE,
-                        "Manage Rules & Alerts…",
-                    ) {
+                    if chrome::menu_item(ui, ph::FUNNEL_SIMPLE, IC_BLUE, "Manage Rules & Alerts…")
+                    {
                         self.open_rules(None);
                     }
                 });
@@ -747,12 +731,8 @@ impl App {
                                 },
                             ));
                         }
-                        if chrome::menu_item(
-                            ui,
-                            ph::CHECK,
-                            IC_GREEN,
-                            "Mark Complete / Clear Flag",
-                        ) {
+                        if chrome::menu_item(ui, ph::CHECK, IC_GREEN, "Mark Complete / Clear Flag")
+                        {
                             acts.push(Act::Patch(
                                 m.id,
                                 MessagePatch {
@@ -789,7 +769,8 @@ impl App {
         });
         chrome::group(ui, &t, "Find", |ui| {
             chrome::column(ui, |ui| {
-                if chrome::small(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Address Book", true).clicked() {
+                if chrome::small(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Address Book", true).clicked()
+                {
                     self.switch_module(super::Module::People);
                 }
                 let r = chrome::small(ui, &t, ph::FUNNEL, IC_BLUE, "Filter Email \u{E136}", true);
@@ -838,27 +819,11 @@ impl App {
             }
         });
         chrome::group(ui, &t, "Actions", |ui| {
-            if chrome::large(
-                ui,
-                &t,
-                ph::PENCIL_LINE,
-                IC_BLUE,
-                "Rename\nFolder",
-                editable,
-            )
-            .clicked()
+            if chrome::large(ui, &t, ph::PENCIL_LINE, IC_BLUE, "Rename\nFolder", editable).clicked()
             {
                 acts.push(Act::RenameFolder(folder.as_ref().unwrap().id));
             }
-            if chrome::large(
-                ui,
-                &t,
-                ph::FOLDER_MINUS,
-                IC_RED,
-                "Delete\nFolder",
-                editable,
-            )
-            .clicked()
+            if chrome::large(ui, &t, ph::FOLDER_MINUS, IC_RED, "Delete\nFolder", editable).clicked()
             {
                 acts.push(Act::DeleteFolder(folder.as_ref().unwrap().id));
             }
@@ -917,17 +882,17 @@ impl App {
                 }
             };
             chrome::column(ui, |ui| {
-                toggle(ui, ph::PAPERCLIP, "Has Attachments", &mut self.mail.f_attach);
+                toggle(
+                    ui,
+                    ph::PAPERCLIP,
+                    "Has Attachments",
+                    &mut self.mail.f_attach,
+                );
                 toggle(ui, ph::FLAG, "Flagged", &mut self.mail.f_flagged);
                 toggle(ui, ph::WARNING, "Important", &mut self.mail.f_important);
             });
             chrome::column(ui, |ui| {
-                toggle(
-                    ui,
-                    ph::ENVELOPE_SIMPLE,
-                    "Unread",
-                    &mut self.mail.f_unread,
-                );
+                toggle(ui, ph::ENVELOPE_SIMPLE, "Unread", &mut self.mail.f_unread);
                 toggle(ui, ph::TAG, "Categorized", &mut self.mail.f_categorized);
             });
             if changed {
@@ -959,12 +924,8 @@ impl App {
                 changed |= ui
                     .checkbox(&mut self.prefs.todo_calendar, "Calendar")
                     .changed();
-                changed |= ui
-                    .checkbox(&mut self.prefs.todo_people, "People")
-                    .changed();
-                changed |= ui
-                    .checkbox(&mut self.prefs.todo_tasks, "Tasks")
-                    .changed();
+                changed |= ui.checkbox(&mut self.prefs.todo_people, "People").changed();
+                changed |= ui.checkbox(&mut self.prefs.todo_tasks, "Tasks").changed();
                 if ui.button("Off").clicked() {
                     (
                         self.prefs.todo_calendar,
@@ -1013,14 +974,7 @@ impl App {
             });
         });
         chrome::group(ui, &t, "Message Preview", |ui| {
-            let r = chrome::large(
-                ui,
-                &t,
-                ph::ROWS,
-                IC_BLUE,
-                "Message\nPreview \u{E136}",
-                true,
-            );
+            let r = chrome::large(ui, &t, ph::ROWS, IC_BLUE, "Message\nPreview \u{E136}", true);
             chrome::menu(&r, |ui| {
                 for (v, label) in [(false, "Off"), (true, "1 Line")] {
                     if ui.radio(self.prefs.preview == v, label).clicked() {
@@ -1050,15 +1004,8 @@ impl App {
                 }
             });
             chrome::column(ui, |ui| {
-                if chrome::small(
-                    ui,
-                    &t,
-                    ph::ARROWS_DOWN_UP,
-                    IC_BLUE,
-                    "Reverse Sort",
-                    true,
-                )
-                .clicked()
+                if chrome::small(ui, &t, ph::ARROWS_DOWN_UP, IC_BLUE, "Reverse Sort", true)
+                    .clicked()
                 {
                     self.mail.ascending = !self.mail.ascending;
                     self.dirty = true;
@@ -1328,12 +1275,7 @@ impl App {
                 }
             }
             ui.separator();
-            if chrome::menu_item(
-                ui,
-                ph::ENVELOPE_SIMPLE_OPEN,
-                IC_BLUE,
-                "Mark All as Read",
-            ) {
+            if chrome::menu_item(ui, ph::ENVELOPE_SIMPLE_OPEN, IC_BLUE, "Mark All as Read") {
                 acts.push(Act::MarkFolderRead(f.id));
             }
         });
@@ -1999,12 +1941,7 @@ impl App {
             if chrome::menu_item(ui, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, "Reply") {
                 acts.push(Act::Compose(ComposeKind::Reply(m.id)));
             }
-            if chrome::menu_item(
-                ui,
-                ph::ARROW_BEND_DOUBLE_UP_LEFT,
-                IC_PURPLE,
-                "Reply All",
-            ) {
+            if chrome::menu_item(ui, ph::ARROW_BEND_DOUBLE_UP_LEFT, IC_PURPLE, "Reply All") {
                 acts.push(Act::Compose(ComposeKind::ReplyAll(m.id)));
             }
             if chrome::menu_item(ui, ph::ARROW_BEND_UP_RIGHT, IC_PURPLE, "Forward") {
@@ -2245,12 +2182,8 @@ pub(super) fn read_message(
                                     if chrome::menu_item(ui, ph::FOLDER_OPEN, IC_BLUE, "Open") {
                                         acts.push(Act::OpenAttachment(a.clone()));
                                     }
-                                    if chrome::menu_item(
-                                        ui,
-                                        ph::FLOPPY_DISK,
-                                        IC_BLUE,
-                                        "Save As…",
-                                    ) {
+                                    if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Save As…")
+                                    {
                                         acts.push(Act::SaveAttachment(a.clone()));
                                     }
                                     if chrome::menu_item(

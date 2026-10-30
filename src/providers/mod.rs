@@ -24,13 +24,13 @@ pub struct OutgoingMail {
     /// low | normal | high
     pub importance: String,
     pub attachments: Vec<NewAttachment>,
-    /// "Lesebestätigung anfordern"
+    /// "Request a Read Receipt"
     pub read_receipt: bool,
-    /// "Übermittlungsbestätigung anfordern"
+    /// "Request a Delivery Receipt"
     pub delivery_receipt: bool,
-    /// "Antworten richten an"
+    /// "Direct Replies To"
     pub reply_to: String,
-    /// "Übermittlung verzögern": not before this time (UTC, RFC 3339).
+    /// "Delay Delivery": not before this time (UTC, RFC 3339).
     pub send_at: Option<String>,
 }
 
@@ -101,7 +101,7 @@ pub fn split_addresses(s: &str) -> Vec<String> {
 }
 
 fn account(state: &AppState, id: i64) -> Result<Account> {
-    db::get_account(&state.db(), id)?.ok_or_else(|| anyhow!("Konto {id} nicht gefunden"))
+    db::get_account(&state.db(), id)?.ok_or_else(|| anyhow!("Account {id} not found"))
 }
 
 pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
@@ -123,7 +123,7 @@ pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
                 .map(|_| ())
         };
         if let Err(e) = applied {
-            tracing::warn!("Regeln für {}: {e:#}", acc.email);
+            tracing::warn!("Rules for {}: {e:#}", acc.email);
         }
     }
     res
@@ -132,14 +132,14 @@ pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
 pub async fn sync_all(state: &AppState) {
     let accounts = match db::list_accounts(&state.db()) {
         Ok(a) => a,
-        Err(e) => return tracing::error!("Konten laden: {e:#}"),
+        Err(e) => return tracing::error!("Loading accounts: {e:#}"),
     };
     for a in accounts
         .into_iter()
         .filter(|a| a.kind != AccountKind::Local)
     {
         if let Err(e) = sync(state, a.id).await {
-            tracing::warn!("Sync {} fehlgeschlagen: {e:#}", a.email);
+            tracing::warn!("Sync of {} failed: {e:#}", a.email);
         }
     }
 }
@@ -155,8 +155,7 @@ pub struct MessagePatch {
 }
 
 pub async fn patch_message(state: &AppState, id: i64, p: &MessagePatch) -> Result<()> {
-    let msg =
-        db::get_message(&state.db(), id)?.ok_or_else(|| anyhow!("Nachricht nicht gefunden"))?;
+    let msg = db::get_message(&state.db(), id)?.ok_or_else(|| anyhow!("Message not found"))?;
     let acc = account(state, msg.summary.account_id)?;
     match acc.kind {
         AccountKind::Local => {}
@@ -192,17 +191,18 @@ pub async fn move_message(state: &AppState, id: i64, folder_id: i64) -> Result<(
     let (rid, from_folder, acc, target) = {
         let c = state.db();
         let (rid, from_folder) = db::message_remote(&c, id)?;
-        let target = db::get_folder(&c, folder_id)?.ok_or_else(|| anyhow!("Zielordner fehlt"))?;
-        let msg = db::get_message(&c, id)?.ok_or_else(|| anyhow!("Nachricht nicht gefunden"))?;
-        let acc =
-            db::get_account(&c, msg.summary.account_id)?.ok_or_else(|| anyhow!("Konto fehlt"))?;
+        let target =
+            db::get_folder(&c, folder_id)?.ok_or_else(|| anyhow!("Target folder missing"))?;
+        let msg = db::get_message(&c, id)?.ok_or_else(|| anyhow!("Message not found"))?;
+        let acc = db::get_account(&c, msg.summary.account_id)?
+            .ok_or_else(|| anyhow!("Account missing"))?;
         (rid, from_folder, acc, target)
     };
     if from_folder == folder_id {
         return Ok(());
     }
     if target.account_id != acc.id {
-        bail!("Verschieben zwischen Konten wird nicht unterstützt");
+        bail!("Moving between accounts is not supported");
     }
     let new_rid = match acc.kind {
         AccountKind::Local => rid,
@@ -220,7 +220,7 @@ pub async fn move_message(state: &AppState, id: i64, folder_id: i64) -> Result<(
 pub async fn delete_message(state: &AppState, id: i64) -> Result<()> {
     let (account_id, folder_id) = {
         let c = state.db();
-        let m = db::get_message(&c, id)?.ok_or_else(|| anyhow!("Nachricht nicht gefunden"))?;
+        let m = db::get_message(&c, id)?.ok_or_else(|| anyhow!("Message not found"))?;
         (m.summary.account_id, m.summary.folder_id)
     };
     let trash = db::folder_by_role(&state.db(), account_id, "trash")?;
@@ -250,11 +250,11 @@ fn deferred(m: &OutgoingMail) -> bool {
 
 pub async fn send(state: &AppState, m: &OutgoingMail) -> Result<()> {
     if split_addresses(&m.to).is_empty() {
-        bail!("Mindestens ein Empfänger ist erforderlich");
+        bail!("At least one recipient is required");
     }
     let acc = account(state, m.account_id)?;
     // Delayed delivery: Microsoft 365 holds the mail on the server; for the
-    // other accounts it waits in the local "Postausgang".
+    // other accounts it waits in the local "Outbox".
     if deferred(m) && acc.kind != AccountKind::Graph {
         return queue(state, &acc, m);
     }
@@ -298,9 +298,9 @@ pub async fn send(state: &AppState, m: &OutgoingMail) -> Result<()> {
 
 pub fn save_draft(state: &AppState, m: &OutgoingMail) -> Result<i64> {
     let c = state.db();
-    let acc = db::get_account(&c, m.account_id)?.ok_or_else(|| anyhow!("Konto fehlt"))?;
+    let acc = db::get_account(&c, m.account_id)?.ok_or_else(|| anyhow!("Account missing"))?;
     let drafts =
-        db::folder_by_role(&c, acc.id, "drafts")?.ok_or_else(|| anyhow!("Kein Entwürfe-Ordner"))?;
+        db::folder_by_role(&c, acc.id, "drafts")?.ok_or_else(|| anyhow!("No Drafts folder"))?;
     let text = mail::strip_html(&m.body_html);
     db::upsert_message(
         &c,
@@ -309,7 +309,7 @@ pub fn save_draft(state: &AppState, m: &OutgoingMail) -> Result<i64> {
         &NewMessage {
             remote_id: format!("draft-{}", mail::now_utc()),
             subject: if m.subject.is_empty() {
-                "(kein Betreff)".into()
+                "(no subject)".into()
             } else {
                 m.subject.clone()
             },
@@ -334,8 +334,7 @@ pub fn save_draft(state: &AppState, m: &OutgoingMail) -> Result<i64> {
 pub async fn ensure_attachments(state: &AppState, message_id: i64) -> Result<()> {
     let (acc, has, cached) = {
         let c = state.db();
-        let m =
-            db::get_message(&c, message_id)?.ok_or_else(|| anyhow!("Nachricht nicht gefunden"))?;
+        let m = db::get_message(&c, message_id)?.ok_or_else(|| anyhow!("Message not found"))?;
         (
             m.summary.account_id,
             m.summary.has_attachments,
@@ -354,7 +353,7 @@ fn queue(state: &AppState, acc: &Account, m: &OutgoingMail) -> Result<()> {
     let c = state.db();
     let outbox = match db::folder_by_role(&c, acc.id, "outbox")? {
         Some(f) => f.id,
-        None => db::upsert_folder(&c, acc.id, "local-outbox", "Postausgang", "outbox")?,
+        None => db::upsert_folder(&c, acc.id, "local-outbox", "Outbox", "outbox")?,
     };
     let text = mail::strip_html(&m.body_html);
     let message_id = db::upsert_message(
@@ -370,7 +369,7 @@ fn queue(state: &AppState, acc: &Account, m: &OutgoingMail) -> Result<()> {
             cc: m.cc.clone(),
             date: m.send_at.clone().unwrap_or_default(),
             preview: format!(
-                "Wird gesendet am {}",
+                "Will be sent on {}",
                 m.send_at.as_deref().unwrap_or_default()
             ),
             body_html: m.body_html.clone(),
@@ -426,7 +425,7 @@ pub async fn get_auto_reply(state: &AppState, account_id: i64) -> Result<graph::
     match kind_of(state, account_id)? {
         AccountKind::Graph => graph::get_auto_reply(state, account_id).await,
         AccountKind::Imap => sieve::get(&imap_config(state, account_id)?).await,
-        AccountKind::Local => bail!("Das lokale Postfach empfängt keine E-Mails"),
+        AccountKind::Local => bail!("The local mailbox does not receive email"),
     }
 }
 
@@ -434,7 +433,7 @@ pub async fn set_auto_reply(state: &AppState, account_id: i64, a: &graph::AutoRe
     match kind_of(state, account_id)? {
         AccountKind::Graph => graph::set_auto_reply(state, account_id, a).await,
         AccountKind::Imap => sieve::set(&imap_config(state, account_id)?, a).await,
-        AccountKind::Local => bail!("Das lokale Postfach empfängt keine E-Mails"),
+        AccountKind::Local => bail!("The local mailbox does not receive email"),
     }
 }
 
@@ -448,12 +447,12 @@ pub async fn create_folder(
 ) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
-        bail!("Bitte einen Ordnernamen eingeben");
+        bail!("Please enter a folder name");
     }
     let parent_remote = match parent {
         Some(id) => Some(
             db::get_folder(&state.db(), id)?
-                .ok_or_else(|| anyhow!("Ordner fehlt"))?
+                .ok_or_else(|| anyhow!("Folder missing"))?
                 .remote_id,
         ),
         None => None,
@@ -473,9 +472,9 @@ pub async fn create_folder(
 }
 
 fn editable_folder(state: &AppState, id: i64) -> Result<Folder> {
-    let f = db::get_folder(&state.db(), id)?.ok_or_else(|| anyhow!("Ordner fehlt"))?;
+    let f = db::get_folder(&state.db(), id)?.ok_or_else(|| anyhow!("Folder missing"))?;
     if f.role != "other" {
-        bail!("Standardordner können nicht umbenannt oder gelöscht werden");
+        bail!("Default folders cannot be renamed or deleted");
     }
     Ok(f)
 }
@@ -483,7 +482,7 @@ fn editable_folder(state: &AppState, id: i64) -> Result<Folder> {
 pub async fn rename_folder(state: &AppState, id: i64, name: &str) -> Result<()> {
     let name = name.trim();
     if name.is_empty() {
-        bail!("Bitte einen Ordnernamen eingeben");
+        bail!("Please enter a folder name");
     }
     let f = editable_folder(state, id)?;
     let remote = match kind_of(state, f.account_id)? {
@@ -527,7 +526,7 @@ pub async fn save_event(state: &AppState, mut e: Event) -> Result<i64> {
 }
 
 /// Answer a meeting request (Microsoft 365): "accept", "tentativelyAccept" or "decline".
-/// A busy block in the Terminplanungs-Assistent.
+/// A busy block in the Scheduling Assistant.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Busy {
     /// UTC "YYYY-MM-DDTHH:MM:SSZ"
@@ -554,7 +553,7 @@ pub async fn free_busy(
     to: &str,
 ) -> Result<Vec<FreeBusy>> {
     let acc =
-        db::get_account(&state.db(), account_id)?.ok_or_else(|| anyhow!("Konto nicht gefunden"))?;
+        db::get_account(&state.db(), account_id)?.ok_or_else(|| anyhow!("Account not found"))?;
     let own = |e: &str| e.eq_ignore_ascii_case(&acc.email);
     let others: Vec<String> = emails.iter().filter(|e| !own(e)).cloned().collect();
     let remote = if acc.kind == AccountKind::Graph && !others.is_empty() {
@@ -589,9 +588,9 @@ pub async fn free_busy(
 }
 
 pub async fn respond_event(state: &AppState, id: i64, answer: &str) -> Result<()> {
-    let mut e = db::get_event(&state.db(), id)?.ok_or_else(|| anyhow!("Termin nicht gefunden"))?;
+    let mut e = db::get_event(&state.db(), id)?.ok_or_else(|| anyhow!("Appointment not found"))?;
     if kind_of(state, e.account_id)? != AccountKind::Graph || e.remote_id.is_empty() {
-        bail!("Besprechungsanfragen können nur in Microsoft 365-Kalendern beantwortet werden");
+        bail!("Meeting requests can only be answered in Microsoft 365 calendars");
     }
     graph::respond_event(state, e.account_id, &e.remote_id, answer).await?;
     if answer == "decline" {
@@ -612,7 +611,7 @@ pub async fn respond_event(state: &AppState, id: i64, answer: &str) -> Result<()
 }
 
 pub async fn delete_event(state: &AppState, id: i64) -> Result<()> {
-    let e = db::get_event(&state.db(), id)?.ok_or_else(|| anyhow!("Termin nicht gefunden"))?;
+    let e = db::get_event(&state.db(), id)?.ok_or_else(|| anyhow!("Appointment not found"))?;
     if kind_of(state, e.account_id)? == AccountKind::Graph && !e.remote_id.is_empty() {
         graph::delete_event(state, e.account_id, &e.remote_id).await?;
     }
@@ -627,7 +626,7 @@ pub async fn save_contact(state: &AppState, mut c: Contact) -> Result<i64> {
 }
 
 pub async fn delete_contact(state: &AppState, id: i64) -> Result<()> {
-    let c = db::get_contact(&state.db(), id)?.ok_or_else(|| anyhow!("Kontakt nicht gefunden"))?;
+    let c = db::get_contact(&state.db(), id)?.ok_or_else(|| anyhow!("Contact not found"))?;
     if kind_of(state, c.account_id)? == AccountKind::Graph && !c.remote_id.is_empty() {
         graph::delete_contact(state, c.account_id, &c.remote_id).await?;
     }
@@ -642,13 +641,13 @@ pub async fn save_task(state: &AppState, mut t: Task) -> Result<i64> {
         t.list_name = lname;
     }
     if t.list_name.is_empty() {
-        t.list_name = "Aufgaben".into();
+        t.list_name = "Tasks".into();
     }
     db::save_task(&state.db(), &t)
 }
 
 pub async fn delete_task(state: &AppState, id: i64) -> Result<()> {
-    let t = db::get_task(&state.db(), id)?.ok_or_else(|| anyhow!("Aufgabe nicht gefunden"))?;
+    let t = db::get_task(&state.db(), id)?.ok_or_else(|| anyhow!("Task not found"))?;
     if kind_of(state, t.account_id)? == AccountKind::Graph && !t.remote_id.is_empty() {
         graph::delete_task(state, &t).await?;
     }
@@ -689,8 +688,8 @@ mod tests {
         let (inbox, trash, id) = {
             let c = state.db();
             let acc = db::insert_account(&c, AccountKind::Local, "L", "l@x.de", "{}").unwrap();
-            let inbox = db::upsert_folder(&c, acc, "inbox", "Posteingang", "inbox").unwrap();
-            let trash = db::upsert_folder(&c, acc, "trash", "Gelöschte Elemente", "trash").unwrap();
+            let inbox = db::upsert_folder(&c, acc, "inbox", "Inbox", "inbox").unwrap();
+            let trash = db::upsert_folder(&c, acc, "trash", "Deleted Items", "trash").unwrap();
             let id = db::upsert_message(
                 &c,
                 acc,
@@ -722,11 +721,11 @@ mod tests {
         let state = AppState::in_memory();
         crate::seed::ensure_local_account(&state.db()).unwrap();
         let acc = db::list_accounts(&state.db()).unwrap()[0].id;
-        let id = create_folder(&state, acc, None, "Projekte").await.unwrap();
-        rename_folder(&state, id, "Kunden").await.unwrap();
+        let id = create_folder(&state, acc, None, "Projects").await.unwrap();
+        rename_folder(&state, id, "Customers").await.unwrap();
         assert_eq!(
             db::get_folder(&state.db(), id).unwrap().unwrap().name,
-            "Kunden"
+            "Customers"
         );
         let inbox = db::folder_by_role(&state.db(), acc, "inbox")
             .unwrap()
@@ -748,7 +747,7 @@ mod tests {
         let m = OutgoingMail {
             account_id: acc,
             to: "a@x.de".into(),
-            subject: "Später".into(),
+            subject: "Later".into(),
             body_html: "x".into(),
             send_at: Some(later),
             ..Default::default()
@@ -765,7 +764,7 @@ mod tests {
                 .total,
             0
         );
-        assert_eq!(send_due(&state).await.unwrap(), 0, "noch nicht fällig");
+        assert_eq!(send_due(&state).await.unwrap(), 0, "not due yet");
         // Make it due and deliver.
         state
             .db()
@@ -799,7 +798,7 @@ mod tests {
             reply_to: "Team <team@x.de>".into(),
             ..Default::default()
         };
-        let raw = String::from_utf8(m.to_lettre("Ich <me@x.de>").unwrap().formatted()).unwrap();
+        let raw = String::from_utf8(m.to_lettre("Me <me@x.de>").unwrap().formatted()).unwrap();
         assert!(raw.contains("Disposition-Notification-To: me@x.de"));
         assert!(raw.contains("Return-Receipt-To: me@x.de"));
         assert!(raw.contains("Reply-To: team@x.de"));
@@ -814,7 +813,7 @@ mod tests {
             account_id: acc,
             to: "bob@x.de".into(),
             subject: "Hi".into(),
-            body_html: "<p>Hallo</p>".into(),
+            body_html: "<p>Hello</p>".into(),
             ..Default::default()
         };
         let m = OutgoingMail {
@@ -866,13 +865,13 @@ mod it {
     use super::*;
 
     fn env(k: &str) -> String {
-        std::env::var(k).unwrap_or_else(|_| panic!("{k} fehlt"))
+        std::env::var(k).unwrap_or_else(|_| panic!("{k} missing"))
     }
 
     async fn folder(state: &AppState, acc: i64, role: &str) -> Folder {
         db::folder_by_role(&state.db(), acc, role)
             .unwrap()
-            .unwrap_or_else(|| panic!("Ordner {role} fehlt"))
+            .unwrap_or_else(|| panic!("folder {role} missing"))
     }
 
     fn messages(state: &AppState, folder_id: i64) -> Vec<MessageSummary> {
@@ -901,7 +900,7 @@ mod it {
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        panic!("Bedingung im Ordner {role} nicht erreicht");
+        panic!("condition in folder {role} not reached");
     }
 
     #[tokio::test]
@@ -938,12 +937,12 @@ mod it {
             account_id: acc,
             to: address.clone(),
             subject: format!("Test {tag}"),
-            body_html: "<p>Hallo <b>Welt</b></p>".into(),
+            body_html: "<p>Hello <b>World</b></p>".into(),
             importance: "high".into(),
             attachments: vec![NewAttachment {
-                name: "notiz.txt".into(),
+                name: "note.txt".into(),
                 mime: "text/plain".into(),
-                data: b"Inhalt der Anlage".to_vec(),
+                data: b"Attachment content".to_vec(),
             }],
             ..Default::default()
         };
@@ -959,8 +958,8 @@ mod it {
             .clone();
         assert!(m.has_attachments && m.importance == "high" && !m.is_read);
         let atts = db::attachments_with_data(&state.db(), m.id).unwrap();
-        assert_eq!(atts[0].name, "notiz.txt");
-        assert_eq!(atts[0].data, b"Inhalt der Anlage");
+        assert_eq!(atts[0].name, "note.txt");
+        assert_eq!(atts[0].data, b"Attachment content");
         // The copy appended to "Sent" (IMAP APPEND) is on the server.
         sync_until(&state, acc, "sent", |l| {
             l.iter().any(|x| x.subject.contains(&tag))
@@ -995,12 +994,12 @@ mod it {
             &state,
             acc,
             None,
-            &format!("Projekte-{}", std::process::id()),
+            &format!("Projects-{}", std::process::id()),
         )
         .await
         .unwrap();
         // Subfolders appear below their parent after a sync.
-        create_folder(&state, acc, Some(projects), "Angebote")
+        create_folder(&state, acc, Some(projects), "Quotes")
             .await
             .unwrap();
         sync(&state, acc).await.unwrap();
@@ -1008,8 +1007,8 @@ mod it {
         let ppos = tree.iter().position(|f| f.id == projects).unwrap();
         assert_eq!(
             (tree[ppos + 1].name.as_str(), tree[ppos + 1].depth),
-            ("Angebote", 1),
-            "Unterordner fehlt: {tree:?}"
+            ("Quotes", 1),
+            "subfolder missing: {tree:?}"
         );
         delete_folder(&state, tree[ppos + 1].id).await.unwrap();
         // Public/shared IMAP namespaces are listed like other folders.
@@ -1017,8 +1016,8 @@ mod it {
             let f = tree
                 .iter()
                 .find(|f| f.remote_id == public)
-                .unwrap_or_else(|| panic!("öffentlicher Ordner {public} fehlt"));
-            assert!(f.total > 0, "Nachrichten im öffentlichen Ordner fehlen");
+                .unwrap_or_else(|| panic!("public folder {public} missing"));
+            assert!(f.total > 0, "messages in the public folder missing");
         }
         move_message(&state, m.id, projects).await.unwrap();
         sync(&state, acc).await.unwrap();
@@ -1027,18 +1026,22 @@ mod it {
             .into_iter()
             .find(|f| f.id == projects)
             .unwrap();
-        assert_eq!(pf.total, 1, "Nachricht liegt im neuen Ordner");
-        rename_folder(&state, projects, &format!("Kunden-{}", std::process::id()))
-            .await
-            .unwrap();
+        assert_eq!(pf.total, 1, "message is in the new folder");
+        rename_folder(
+            &state,
+            projects,
+            &format!("Customers-{}", std::process::id()),
+        )
+        .await
+        .unwrap();
         sync(&state, acc).await.unwrap();
         let renamed = db::list_folders(&state.db())
             .unwrap()
             .into_iter()
-            .find(|f| f.name.starts_with("Kunden-"))
-            .expect("umbenannter Ordner");
+            .find(|f| f.name.starts_with("Customers-"))
+            .expect("renamed folder");
         assert_eq!(renamed.total, 1);
-        // Delete the message (→ Gelöschte Elemente), then the empty folder.
+        // Delete the message (→ Deleted Items), then the empty folder.
         let mid = messages(&state, renamed.id)[0].id;
         delete_message(&state, mid).await.unwrap();
         sync_until(&state, acc, "trash", |l| {
@@ -1050,12 +1053,12 @@ mod it {
         assert!(!db::list_folders(&state.db())
             .unwrap()
             .iter()
-            .any(|f| f.name.starts_with("Kunden-")));
+            .any(|f| f.name.starts_with("Customers-")));
 
         // Automatic replies via ManageSieve.
         let ar = crate::providers::graph::AutoReply {
             enabled: true,
-            internal: format!("Bin bis Montag weg ({tag})."),
+            internal: format!("Away until Monday ({tag})."),
             ..Default::default()
         };
         set_auto_reply(&state, acc, &ar).await.unwrap();
@@ -1076,7 +1079,7 @@ mod it {
             let acc2 = db::insert_account(
                 &state.db(),
                 AccountKind::Imap,
-                "Kollege",
+                "Colleague",
                 &addr2,
                 &serde_json::to_string(&cfg2).unwrap(),
             )
@@ -1087,8 +1090,8 @@ mod it {
                 &OutgoingMail {
                     account_id: acc2,
                     to: address.clone(),
-                    subject: format!("Frage {tag}"),
-                    body_html: "Hallo?".into(),
+                    subject: format!("Question {tag}"),
+                    body_html: "Hello?".into(),
                     ..Default::default()
                 },
             )
@@ -1100,10 +1103,7 @@ mod it {
                     sync(&state, acc2).await.unwrap();
                     let f = folder(&state, acc2, "inbox").await;
                     found = messages(&state, f.id);
-                    if found
-                        .iter()
-                        .any(|m| m.subject.contains("Automatische Antwort"))
-                    {
+                    if found.iter().any(|m| m.subject.contains("Automatic reply")) {
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1112,8 +1112,8 @@ mod it {
             };
             let reply = inbox2
                 .iter()
-                .find(|m| m.subject.contains("Automatische Antwort"))
-                .expect("keine automatische Antwort erhalten");
+                .find(|m| m.subject.contains("Automatic reply"))
+                .expect("no automatic reply received");
             let full = db::get_message(&state.db(), reply.id).unwrap().unwrap();
             assert!(full.body_text.contains(&tag), "{}", full.body_text);
         }
@@ -1127,10 +1127,10 @@ mod it {
         crate::rules::save(
             &state.db(),
             &[crate::rules::Rule {
-                name: "Archiv".into(),
+                name: "Archive".into(),
                 enabled: true,
                 field: crate::rules::Field::Subject,
-                contains: format!("Regel {tag}"),
+                contains: format!("Rule {tag}"),
                 action: crate::rules::Action::Move,
                 folder_id: Some(archive.id),
                 ..Default::default()
@@ -1142,7 +1142,7 @@ mod it {
             &OutgoingMail {
                 account_id: acc,
                 to: address.clone(),
-                subject: format!("Regel {tag}"),
+                subject: format!("Rule {tag}"),
                 body_html: "x".into(),
                 ..Default::default()
             },
@@ -1150,8 +1150,7 @@ mod it {
         .await
         .unwrap();
         sync_until(&state, acc, "archive", |l| {
-            l.iter()
-                .any(|x| x.subject.contains(&format!("Regel {tag}")))
+            l.iter().any(|x| x.subject.contains(&format!("Rule {tag}")))
         })
         .await;
     }

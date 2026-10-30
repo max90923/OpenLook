@@ -70,5 +70,5 @@ fn main() -> Result<()> {
         options,
         Box::new(move |cc| Ok(Box::new(ui::App::new(cc, state, runtime)))),
     )
-    .map_err(|e| anyhow::anyhow!("GUI konnte nicht gestartet werden: {e}"))
+    .map_err(|e| anyhow::anyhow!("Could not start the GUI: {e}"))
 }

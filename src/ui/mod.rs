@@ -306,11 +306,7 @@ impl App {
             backstage: None,
             tell_me: String::new(),
             search: String::new(),
-            status: (
-                "All folders are up to date.".into(),
-                false,
-                Instant::now(),
-            ),
+            status: ("All folders are up to date.".into(), false, Instant::now()),
             data: Data::default(),
             mail: Default::default(),
             cal: calendar::CalendarView::new(),
@@ -378,9 +374,7 @@ impl App {
                 match providers::send_due(&st).await {
                     Ok(0) => continue,
                     Ok(n) => {
-                        let _ = tx.send(Done::Ok(Some(format!(
-                            "{n} delayed message(s) sent."
-                        ))));
+                        let _ = tx.send(Done::Ok(Some(format!("{n} delayed message(s) sent."))));
                     }
                     Err(e) => {
                         let _ = tx.send(Done::Err(format!("Outbox: {e:#}")));
@@ -502,13 +496,10 @@ impl App {
 
     pub fn sync_all(&mut self) {
         self.toast("Send/Receive in progress…", false);
-        self.spawn(
-            Some("All folders are up to date."),
-            |st, _| async move {
-                providers::sync_all(&st).await;
-                Ok(())
-            },
-        );
+        self.spawn(Some("All folders are up to date."), |st, _| async move {
+            providers::sync_all(&st).await;
+            Ok(())
+        });
     }
 
     fn run(&mut self, cmd: Cmd) {
@@ -644,8 +635,11 @@ impl App {
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut tell)
                             .hint_text(
-                                RichText::new(format!("{}  Tell me what you want to do", ph::LIGHTBULB))
-                                    .color(t.band_text),
+                                RichText::new(format!(
+                                    "{}  Tell me what you want to do",
+                                    ph::LIGHTBULB
+                                ))
+                                .color(t.band_text),
                             )
                             .desired_width(220.0)
                             .frame(false)
@@ -733,20 +727,12 @@ impl App {
             }
             2 => {
                 chrome::group(ui, &t, "Accounts", |ui| {
-                    if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Add\nAccount", true)
-                        .clicked()
+                    if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Add\nAccount", true).clicked()
                     {
                         self.open_add_account();
                     }
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::GEAR,
-                        chrome::IC_GREY,
-                        "Account\nSettings",
-                        true,
-                    )
-                    .clicked()
+                    if chrome::large(ui, &t, ph::GEAR, chrome::IC_GREY, "Account\nSettings", true)
+                        .clicked()
                     {
                         self.backstage = Some(backstage::Page::Info);
                     }
@@ -765,14 +751,8 @@ impl App {
                     }
                 });
                 chrome::group(ui, &t, "Layout", |ui| {
-                    let r = chrome::large(
-                        ui,
-                        &t,
-                        ph::SIDEBAR,
-                        IC_BLUE,
-                        "Folder\nPane \u{E136}",
-                        true,
-                    );
+                    let r =
+                        chrome::large(ui, &t, ph::SIDEBAR, IC_BLUE, "Folder\nPane \u{E136}", true);
                     chrome::menu(&r, |ui| {
                         if ui.radio(!self.folder_pane_min, "Normal").clicked() {
                             self.folder_pane_min = false;
@@ -842,7 +822,9 @@ impl App {
                     chrome::menu(&r, |ui| {
                         ui.label(RichText::new("OpenLook").size(18.0).strong());
                         ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                        ui.label("Mail, Calendar, People and Tasks –\nIMAP/SMTP and Microsoft 365.");
+                        ui.label(
+                            "Mail, Calendar, People and Tasks –\nIMAP/SMTP and Microsoft 365.",
+                        );
                     });
                 });
                 true

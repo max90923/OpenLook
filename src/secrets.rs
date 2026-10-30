@@ -86,7 +86,7 @@ pub fn config(state: &AppState, account_id: i64) -> Result<String> {
     for f in FIELDS {
         if cfg.get(f).is_some_and(|v| v.as_str() == Some("")) {
             let secret = load(account_id, f).ok_or_else(|| {
-                anyhow!("Die Anmeldedaten wurden im Schlüsselbund des Systems nicht gefunden – bitte das Konto entfernen und neu hinzufügen")
+                anyhow!("The credentials were not found in the system keychain – please remove the account and add it again")
             })?;
             cfg[f] = Value::String(secret);
         }
@@ -102,8 +102,11 @@ pub fn secure_all(state: &AppState) {
     for a in accounts {
         match secure(state, a.id) {
             Ok(true) => {}
-            Ok(false) => tracing::info!("Kein Schlüsselbund verfügbar – Anmeldedaten von {} bleiben in der lokalen Datenbank", a.email),
-            Err(e) => tracing::warn!("Schlüsselbund für {}: {e:#}", a.email),
+            Ok(false) => tracing::info!(
+                "No keychain available – credentials of {} stay in the local database",
+                a.email
+            ),
+            Err(e) => tracing::warn!("Keychain for {}: {e:#}", a.email),
         }
     }
 }
@@ -121,10 +124,10 @@ mod tests {
             AccountKind::Imap,
             "T",
             "t@x.de",
-            r#"{"password":"geheim"}"#,
+            r#"{"password":"secret123"}"#,
         )
         .unwrap();
-        assert!(config(&state, id).unwrap().contains("geheim"));
+        assert!(config(&state, id).unwrap().contains("secret123"));
     }
 
     #[test]
@@ -137,14 +140,14 @@ mod tests {
             AccountKind::Imap,
             "T",
             "t@x.de",
-            r#"{"password":"geheim","username":"u"}"#,
+            r#"{"password":"secret123","username":"u"}"#,
         )
         .unwrap();
         let moved = secure(&state, id).unwrap();
         let raw = db::account_config(&state.db(), id).unwrap();
-        assert_eq!(moved, !raw.contains("geheim"));
+        assert_eq!(moved, !raw.contains("secret123"));
         if moved {
-            assert!(config(&state, id).unwrap().contains("geheim"));
+            assert!(config(&state, id).unwrap().contains("secret123"));
             forget(id);
         }
     }
@@ -163,18 +166,18 @@ mod tests {
             r#"{"access_token":"a1","refresh_token":"r1","expires_at":0}"#,
         )
         .unwrap();
-        assert!(secure(&state, id).unwrap(), "Schlüsselbund nicht verfügbar");
+        assert!(secure(&state, id).unwrap(), "Keychain not available");
         let raw = db::account_config(&state.db(), id).unwrap();
         assert!(
             !raw.contains("r1") && !raw.contains("a1"),
-            "Geheimnisse noch in der Datenbank: {raw}"
+            "Secrets still in the database: {raw}"
         );
         let full = config(&state, id).unwrap();
         assert!(full.contains("r1") && full.contains("a1"));
         forget(id);
         assert!(
             config(&state, id).is_err(),
-            "nach dem Entfernen dürfen keine Daten mehr da sein"
+            "no data may remain after removal"
         );
     }
 }

@@ -43,11 +43,9 @@ impl App {
                         .collect();
                     if favorites.is_empty() {
                         ui.label(
-                            RichText::new(
-                                "Add contacts to Favorites to see them here.",
-                            )
-                            .size(12.0)
-                            .color(t.text_weak),
+                            RichText::new("Add contacts to Favorites to see them here.")
+                                .size(12.0)
+                                .color(t.text_weak),
                         );
                     }
                     for c in favorites {
@@ -71,10 +69,7 @@ impl App {
                             egui::FontId::proportional(13.0),
                             t.text,
                         );
-                        if resp
-                            .on_hover_text(format!("Email {}", c.email))
-                            .clicked()
-                        {
+                        if resp.on_hover_text(format!("Email {}", c.email)).clicked() {
                             self.open_composer(ComposeKind::To(format!(
                                 "{} <{}>",
                                 c.display_name, c.email

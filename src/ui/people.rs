@@ -126,8 +126,7 @@ impl App {
                 self.switch_module(Module::Mail);
                 self.open_composer(ComposeKind::To(format!("{} <{}>", c.display_name, c.email)));
             }
-            if chrome::large(ui, &t, ph::CALENDAR_PLUS, IC_BLUE, "Meeting", has_mail).clicked()
-            {
+            if chrome::large(ui, &t, ph::CALENDAR_PLUS, IC_BLUE, "Meeting", has_mail).clicked() {
                 let c = sel.as_ref().unwrap().clone();
                 self.new_event_now();
                 self.set_last_event_attendee(&c.email);
@@ -606,15 +605,8 @@ impl App {
         let closed = chrome::native_window(ctx, vid, &title, [840.0, 600.0], &t, |ui| {
             chrome::item_ribbon(ui, &t, "Contact", |ui| {
                 chrome::group(ui, &t, "Actions", |ui| {
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::FLOPPY_DISK,
-                        IC_PURPLE,
-                        "Save &\nClose",
-                        true,
-                    )
-                    .clicked()
+                    if chrome::large(ui, &t, ph::FLOPPY_DISK, IC_PURPLE, "Save &\nClose", true)
+                        .clicked()
                     {
                         save = true;
                     }

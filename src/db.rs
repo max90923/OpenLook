@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS notes (
 
 CREATE TABLE IF NOT EXISTS journal (
     id      INTEGER PRIMARY KEY,
-    kind    TEXT NOT NULL DEFAULT 'Telefonanruf',
+    kind    TEXT NOT NULL DEFAULT 'Phone call',
     subject TEXT NOT NULL DEFAULT '',
     company TEXT NOT NULL DEFAULT '',
     start   TEXT NOT NULL,
@@ -405,7 +405,7 @@ fn row_summary(r: &Row) -> rusqlite::Result<MessageSummary> {
 }
 
 /// Outlook's standard search folders: virtual folders over a whole account
-/// (without Gelöschte Elemente, Junk-E-Mail, Entwürfe and Postausgang).
+/// (without Deleted Items, Junk Email, Drafts and Outbox).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFolder {
     Unread,
@@ -424,10 +424,10 @@ impl SearchFolder {
 
     pub fn name(self) -> &'static str {
         match self {
-            SearchFolder::Unread => "Ungelesene E-Mail",
-            SearchFolder::Flagged => "Zur Nachverfolgung gekennzeichnet",
-            SearchFolder::Attachments => "E-Mail mit Anlagen",
-            SearchFolder::Important => "Wichtige E-Mail",
+            SearchFolder::Unread => "Unread Mail",
+            SearchFolder::Flagged => "For Follow Up",
+            SearchFolder::Attachments => "Mail with Attachments",
+            SearchFolder::Important => "Important Mail",
         }
     }
 
@@ -1056,10 +1056,10 @@ mod tests {
         let c = mem();
         let acc = insert_account(&c, AccountKind::Local, "Test", "t@example.com", "{}").unwrap();
         let other = insert_account(&c, AccountKind::Local, "B", "b@example.com", "{}").unwrap();
-        let inbox = upsert_folder(&c, acc, "INBOX", "Posteingang", "inbox").unwrap();
-        let archive = upsert_folder(&c, acc, "Archiv", "Archiv", "other").unwrap();
-        let trash = upsert_folder(&c, acc, "Trash", "Gelöschte Elemente", "trash").unwrap();
-        let foreign = upsert_folder(&c, other, "INBOX", "Posteingang", "inbox").unwrap();
+        let inbox = upsert_folder(&c, acc, "INBOX", "Inbox", "inbox").unwrap();
+        let archive = upsert_folder(&c, acc, "Archive", "Archive", "other").unwrap();
+        let trash = upsert_folder(&c, acc, "Trash", "Deleted Items", "trash").unwrap();
+        let foreign = upsert_folder(&c, other, "INBOX", "Inbox", "inbox").unwrap();
         for (i, (folder, acc)) in [(inbox, acc), (archive, acc), (trash, acc), (foreign, other)]
             .into_iter()
             .enumerate()
@@ -1096,15 +1096,15 @@ mod tests {
     fn folders_and_messages_roundtrip() {
         let c = mem();
         let acc = insert_account(&c, AccountKind::Local, "Test", "t@example.com", "{}").unwrap();
-        let inbox = upsert_folder(&c, acc, "INBOX", "Posteingang", "inbox").unwrap();
+        let inbox = upsert_folder(&c, acc, "INBOX", "Inbox", "inbox").unwrap();
         assert_eq!(
-            upsert_folder(&c, acc, "INBOX", "Posteingang", "inbox").unwrap(),
+            upsert_folder(&c, acc, "INBOX", "Inbox", "inbox").unwrap(),
             inbox
         );
 
         let m = NewMessage {
             remote_id: "1".into(),
-            subject: "Hallo Welt".into(),
+            subject: "Hello World".into(),
             from_name: "Alice".into(),
             date: "2026-01-01T10:00:00Z".into(),
             ..Default::default()
@@ -1112,15 +1112,23 @@ mod tests {
         let id = upsert_message(&c, acc, inbox, &m).unwrap();
         assert_eq!(list_folders(&c).unwrap()[0].unread, 1);
 
-        update_message_flags(&c, id, Some(true), Some(true), None, Some(&["Rot".into()])).unwrap();
+        update_message_flags(
+            &c,
+            id,
+            Some(true),
+            Some(true),
+            None,
+            Some(&["Red Category".into()]),
+        )
+        .unwrap();
         let got = get_message(&c, id).unwrap().unwrap();
         assert!(got.summary.is_read && got.summary.is_flagged);
-        assert_eq!(got.summary.categories, vec!["Rot"]);
+        assert_eq!(got.summary.categories, vec!["Red Category"]);
 
         let found = list_messages(
             &c,
             &MessageQuery {
-                search: Some("welt".into()),
+                search: Some("world".into()),
                 ..Default::default()
             },
         )
@@ -1144,13 +1152,13 @@ mod tests {
     fn attachments_roundtrip() {
         let c = mem();
         let acc = insert_account(&c, AccountKind::Local, "T", "t@x.de", "{}").unwrap();
-        let f = upsert_folder(&c, acc, "inbox", "Posteingang", "inbox").unwrap();
+        let f = upsert_folder(&c, acc, "inbox", "Inbox", "inbox").unwrap();
         let m = NewMessage {
             remote_id: "1".into(),
             attachments: vec![NewAttachment {
                 name: "a.txt".into(),
                 mime: "text/plain".into(),
-                data: b"hallo".to_vec(),
+                data: b"hello".to_vec(),
             }],
             ..Default::default()
         };
@@ -1160,7 +1168,7 @@ mod tests {
         let list = list_attachments(&c, id).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].size, 5);
-        assert_eq!(attachment_data(&c, list[0].id).unwrap(), b"hallo");
+        assert_eq!(attachment_data(&c, list[0].id).unwrap(), b"hello");
         assert!(
             get_message(&c, id)
                 .unwrap()
@@ -1176,7 +1184,7 @@ mod tests {
         let id = save_note(
             &c,
             &Note {
-                body: "Einkaufen\nMilch".into(),
+                body: "Shopping\nMilk".into(),
                 color: "yellow".into(),
                 ..Default::default()
             },
@@ -1186,7 +1194,7 @@ mod tests {
             &c,
             &Note {
                 id,
-                body: "Einkaufen\nBrot".into(),
+                body: "Shopping\nBread".into(),
                 color: "blue".into(),
                 ..Default::default()
             },
@@ -1199,8 +1207,8 @@ mod tests {
         assert!(list_notes(&c).unwrap().is_empty());
 
         let j = JournalEntry {
-            kind: "Telefonanruf".into(),
-            subject: "Anruf Kunde".into(),
+            kind: "Phone call".into(),
+            subject: "Customer call".into(),
             start: "2026-10-29T10:00:00Z".into(),
             minutes: 12,
             ..Default::default()
@@ -1215,13 +1223,13 @@ mod tests {
     fn folders_form_a_tree() {
         let c = mem();
         let acc = insert_account(&c, AccountKind::Imap, "T", "t@x.de", "{}").unwrap();
-        upsert_folder(&c, acc, "INBOX", "Posteingang", "inbox").unwrap();
-        upsert_folder(&c, acc, "Kunden", "Kunden", "other").unwrap();
-        let a = upsert_folder(&c, acc, "Kunden/Alpha", "Alpha", "other").unwrap();
-        let b = upsert_folder(&c, acc, "Kunden/Alpha/Briefe", "Briefe", "other").unwrap();
-        upsert_folder(&c, acc, "Archiv 2020", "Archiv 2020", "other").unwrap();
-        set_folder_parent(&c, a, "Kunden").unwrap();
-        set_folder_parent(&c, b, "Kunden/Alpha").unwrap();
+        upsert_folder(&c, acc, "INBOX", "Inbox", "inbox").unwrap();
+        upsert_folder(&c, acc, "Customers", "Customers", "other").unwrap();
+        let a = upsert_folder(&c, acc, "Customers/Alpha", "Alpha", "other").unwrap();
+        let b = upsert_folder(&c, acc, "Customers/Alpha/Letters", "Letters", "other").unwrap();
+        upsert_folder(&c, acc, "Archive 2020", "Archive 2020", "other").unwrap();
+        set_folder_parent(&c, a, "Customers").unwrap();
+        set_folder_parent(&c, b, "Customers/Alpha").unwrap();
         let order: Vec<(String, i64)> = list_folders(&c)
             .unwrap()
             .into_iter()
@@ -1230,11 +1238,11 @@ mod tests {
         assert_eq!(
             order,
             vec![
-                ("Posteingang".into(), 0),
-                ("Archiv 2020".into(), 0),
-                ("Kunden".into(), 0),
+                ("Inbox".into(), 0),
+                ("Archive 2020".into(), 0),
+                ("Customers".into(), 0),
                 ("Alpha".into(), 1),
-                ("Briefe".into(), 2)
+                ("Letters".into(), 2)
             ]
         );
     }
@@ -1272,7 +1280,7 @@ mod tests {
             &c,
             &Event {
                 account_id: acc,
-                title: "Jour fixe".into(),
+                title: "Weekly sync".into(),
                 start: "2026-01-05T09:00:00Z".into(),
                 end: "2026-01-05T10:00:00Z".into(),
                 recurrence: "weekly;1;1;".into(),
@@ -1282,7 +1290,7 @@ mod tests {
         .unwrap();
         let march = list_events(&c, "2026-03-01T00:00:00Z", "2026-04-01T00:00:00Z").unwrap();
         assert_eq!(march.len(), 5); // Mondays in March 2026: 2, 9, 16, 23, 30
-        assert!(march.iter().all(|e| e.title == "Jour fixe"));
+        assert!(march.iter().all(|e| e.title == "Weekly sync"));
     }
 
     #[test]
@@ -1311,7 +1319,7 @@ mod tests {
             &c,
             &Task {
                 account_id: acc,
-                title: "lokal".into(),
+                title: "local".into(),
                 ..Default::default()
             },
         )
@@ -1329,6 +1337,6 @@ mod tests {
         clear_remote_items(&c, "tasks", acc).unwrap();
         let tasks = list_tasks(&c).unwrap();
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].title, "lokal");
+        assert_eq!(tasks[0].title, "local");
     }
 }

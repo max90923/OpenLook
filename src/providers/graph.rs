@@ -47,7 +47,7 @@ fn rewrite_path(path: &str, shared: Option<&str>) -> String {
 pub async fn add_shared_mailbox(state: &AppState, owner: i64, address: &str) -> Result<i64> {
     let address = address.trim();
     if !address.contains('@') {
-        bail!("Bitte die E-Mail-Adresse des freigegebenen Postfachs eingeben");
+        bail!("Please enter the email address of the shared mailbox");
     }
     // Probe access first so a missing permission gives a clear error.
     let probe = call(
@@ -59,7 +59,7 @@ pub async fn add_shared_mailbox(state: &AppState, owner: i64, address: &str) -> 
     )
     .await;
     if let Err(e) = probe {
-        bail!("Kein Zugriff auf das Postfach {address}: {e:#}");
+        bail!("No access to the mailbox {address}: {e:#}");
     }
     let cfg = json!({ "shared_of": owner, "mailbox": address });
     let id = db::insert_account(
@@ -85,7 +85,7 @@ fn client_id(state: &AppState) -> Result<&str> {
     state
         .graph_client_id
         .as_deref()
-        .ok_or_else(|| anyhow!("OPENLOOK_GRAPH_CLIENT_ID ist nicht gesetzt (siehe README)"))
+        .ok_or_else(|| anyhow!("OPENLOOK_GRAPH_CLIENT_ID is not set (see README)"))
 }
 
 // ---------------------------------------------------------------- device code flow
@@ -121,7 +121,7 @@ pub async fn start_device_flow(state: &AppState) -> Result<DeviceCode> {
         .await?;
     if !res.status().is_success() {
         bail!(
-            "Device-Code-Anfrage fehlgeschlagen: {}",
+            "Device code request failed: {}",
             res.text().await.unwrap_or_default()
         );
     }
@@ -135,7 +135,7 @@ pub async fn finish_device_flow(state: &AppState, dc: &DeviceCode) -> Result<i64
     let tokens = loop {
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
         if std::time::Instant::now() > deadline {
-            bail!("Anmeldung abgelaufen");
+            bail!("Sign-in expired");
         }
         let res = state
             .http
@@ -155,7 +155,7 @@ pub async fn finish_device_flow(state: &AppState, dc: &DeviceCode) -> Result<i64
             "authorization_pending" => continue,
             "slow_down" => interval += 5,
             _ => bail!(
-                "Anmeldung fehlgeschlagen: {}",
+                "Sign-in failed: {}",
                 err.error_description.unwrap_or(err.error)
             ),
         }
@@ -210,7 +210,7 @@ async fn access_token(state: &AppState, account_id: i64) -> Result<String> {
         .await?;
     if !res.status().is_success() {
         bail!(
-            "Token-Erneuerung fehlgeschlagen, bitte Konto neu verbinden: {}",
+            "Token refresh failed, please reconnect the account: {}",
             res.text().await.unwrap_or_default()
         );
     }
@@ -319,12 +319,12 @@ fn to_recipients(list: &str) -> Value {
 // ---------------------------------------------------------------- sync
 
 pub async fn sync(state: &AppState, account_id: i64) -> Result<()> {
-    sync_mail(state, account_id).await.context("E-Mail")?;
-    sync_events(state, account_id).await.context("Kalender")?;
-    sync_contacts(state, account_id).await.context("Kontakte")?;
+    sync_mail(state, account_id).await.context("Mail")?;
+    sync_events(state, account_id).await.context("Calendar")?;
+    sync_contacts(state, account_id).await.context("Contacts")?;
     // Microsoft To Do lists cannot be opened for other users' mailboxes.
     if target(state, account_id)?.1.is_none() {
-        sync_tasks(state, account_id).await.context("Aufgaben")?;
+        sync_tasks(state, account_id).await.context("Tasks")?;
     }
     Ok(())
 }
@@ -402,7 +402,7 @@ async fn sync_mail(state: &AppState, account_id: i64) -> Result<()> {
                 subject: m["subject"]
                     .as_str()
                     .filter(|x| !x.is_empty())
-                    .unwrap_or("(kein Betreff)")
+                    .unwrap_or("(no subject)")
                     .to_string(),
                 from_name: s(&m["from"]["emailAddress"]["name"]),
                 from_addr: s(&m["from"]["emailAddress"]["address"]),
@@ -786,7 +786,7 @@ pub async fn respond_event(
     Ok(())
 }
 
-/// Busy times of people for the Terminplanungs-Assistent (`getSchedule`).
+/// Busy times of people for the Scheduling Assistant (`getSchedule`).
 /// `from`/`to` are UTC "YYYY-MM-DDTHH:MM:SSZ".
 pub async fn get_schedule(
     state: &AppState,
@@ -833,7 +833,7 @@ pub async fn get_schedule(
         .collect())
 }
 
-/// Automatic replies ("Abwesenheitsnotiz") of a Microsoft 365 mailbox.
+/// Automatic replies ("out of office") of a Microsoft 365 mailbox.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AutoReply {
     pub enabled: bool,
@@ -1013,7 +1013,7 @@ pub async fn save_task(state: &AppState, t: &Task) -> Result<(String, String, St
             .iter()
             .find(|l| l["wellknownListName"] == "defaultList")
             .or(lists.first())
-            .ok_or_else(|| anyhow!("Keine To-Do-Liste gefunden"))?;
+            .ok_or_else(|| anyhow!("No To Do list found"))?;
         (s(&l["id"]), s(&l["displayName"]))
     } else {
         (t.list_remote_id.clone(), t.list_name.clone())
@@ -1096,7 +1096,7 @@ mod tests {
             &json!({
                 "id": "abc", "subject": "Daily", "isAllDay": false, "showAs": "tentative",
                 "start": { "dateTime": "2026-03-10T09:00:00.0000000" }, "end": { "dateTime": "2026-03-10T09:15:00.0000000" },
-                "isReminderOn": true, "reminderMinutesBeforeStart": 5, "categories": ["Blau"]
+                "isReminderOn": true, "reminderMinutesBeforeStart": 5, "categories": ["Blue Category"]
             }),
         );
         assert_eq!(
@@ -1106,7 +1106,7 @@ mod tests {
                 e.reminder,
                 e.category.as_str()
             ),
-            ("Daily", "tentative", 5, "Blau")
+            ("Daily", "tentative", 5, "Blue Category")
         );
         assert_eq!(
             event_to_graph(&e)["start"]["dateTime"],

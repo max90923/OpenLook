@@ -1,4 +1,4 @@
-//! Client-side mail rules ("Regeln"), applied to new messages in the inbox
+//! Client-side mail rules ("Rules"), applied to new messages in the inbox
 //! after every send/receive – like Outlook's client-only rules.
 
 use anyhow::Result;
@@ -50,10 +50,10 @@ pub struct Rule {
 impl Field {
     pub fn label(self) -> &'static str {
         match self {
-            Field::From => "Absender enthält",
-            Field::Subject => "Betreff enthält",
-            Field::To => "Empfänger enthält",
-            Field::Body => "Text enthält",
+            Field::From => "Sender contains",
+            Field::Subject => "Subject contains",
+            Field::To => "Recipient contains",
+            Field::Body => "Body contains",
         }
     }
 }
@@ -61,11 +61,11 @@ impl Field {
 impl Action {
     pub fn label(self) -> &'static str {
         match self {
-            Action::Move => "in Ordner verschieben",
-            Action::MarkRead => "als gelesen markieren",
-            Action::Flag => "zur Nachverfolgung kennzeichnen",
-            Action::Category => "Kategorie zuweisen",
-            Action::Delete => "löschen",
+            Action::Move => "move to folder",
+            Action::MarkRead => "mark as read",
+            Action::Flag => "flag for follow up",
+            Action::Category => "assign to category",
+            Action::Delete => "delete",
         }
     }
 }
@@ -86,7 +86,7 @@ pub fn save(c: &Connection, rules: &[Rule]) -> Result<()> {
     db::set_setting(c, "rules", &serde_json::to_value(rules)?)
 }
 
-/// Conversations the user chose to ignore ("Ignorieren").
+/// Conversations the user chose to ignore ("Ignore").
 pub fn ignored(c: &Connection) -> Vec<String> {
     db::get_settings(c)
         .ok()
@@ -266,24 +266,24 @@ mod tests {
         let r = Rule {
             enabled: true,
             field: Field::Subject,
-            contains: "rechnung".into(),
+            contains: "invoice".into(),
             ..Default::default()
         };
-        assert!(matches(&r, &msg("x", "Ihre Rechnung 42")));
-        assert!(!matches(&r, &msg("x", "Hallo")));
+        assert!(matches(&r, &msg("x", "Your Invoice 42")));
+        assert!(!matches(&r, &msg("x", "Hello")));
         assert!(!matches(
             &Rule {
                 enabled: false,
                 ..r.clone()
             },
-            &msg("x", "Rechnung")
+            &msg("x", "Invoice")
         ));
         assert!(!matches(
             &Rule {
                 account_id: Some(2),
                 ..r
             },
-            &msg("x", "Rechnung")
+            &msg("x", "Invoice")
         ));
     }
 
@@ -292,7 +292,7 @@ mod tests {
         let state = AppState::in_memory();
         crate::seed::ensure_local_account(&state.db()).unwrap();
         let acc = db::list_accounts(&state.db()).unwrap()[0].id;
-        ignore(&state.db(), "AW: Re: Urlaubsplanung").unwrap();
+        ignore(&state.db(), "AW: Re: Vacation planning").unwrap();
         assert_eq!(apply(&state, acc, true).await.unwrap(), 1);
         let trash = db::folder_by_role(&state.db(), acc, "trash")
             .unwrap()
@@ -311,10 +311,10 @@ mod tests {
         save(
             &state.db(),
             &[Rule {
-                name: "Rechnungen".into(),
+                name: "Invoices".into(),
                 enabled: true,
                 field: Field::Subject,
-                contains: "Rechnung".into(),
+                contains: "Invoice".into(),
                 action: Action::Move,
                 folder_id: Some(archive.id),
                 ..Default::default()

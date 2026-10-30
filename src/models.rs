@@ -182,7 +182,7 @@ pub struct Contact {
     pub favorite: bool,
 }
 
-/// Kontaktgruppe (distribution list), stored locally in the settings.
+/// Contact group (distribution list), stored locally in the settings.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ContactGroup {
@@ -198,7 +198,7 @@ pub struct Task {
     pub id: i64,
     pub account_id: i64,
     pub remote_id: String,
-    /// Task list name (e.g. "Aufgaben" or a Microsoft To Do list)
+    /// Task list name (e.g. "Tasks" or a Microsoft To Do list)
     pub list_name: String,
     /// Remote list id (Graph To Do list id); empty for local/IMAP
     pub list_remote_id: String,
@@ -211,7 +211,7 @@ pub struct Task {
     pub notes: String,
 }
 
-/// Outlook "Notiz" (sticky note).
+/// Outlook "Note" (sticky note).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Note {
     pub id: i64,
@@ -222,11 +222,11 @@ pub struct Note {
     pub modified: String,
 }
 
-/// Outlook "Journaleintrag".
+/// Outlook "Journal Entry".
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JournalEntry {
     pub id: i64,
-    /// Telefonanruf, Besprechung, E-Mail-Nachricht, Aufgabe, Dokument, Notiz, Gespräch
+    /// Phone call, Meeting, E-mail Message, Task, Document, Note, Conversation
     pub kind: String,
     pub subject: String,
     pub company: String,

@@ -1,8 +1,8 @@
-//! Conversation tools: "Aufräumen" (clean up) and "Ignorieren" (ignore).
+//! Conversation tools: "Clean Up" and "Ignore".
 
 use crate::models::Message;
 
-/// Messages with the same subject (without AW:/WG:/RE:/FW: prefixes) form a conversation.
+/// Messages with the same subject (without RE:/FW:/Fwd: prefixes, or the German AW:/WG:) form a conversation.
 pub fn key(subject: &str) -> String {
     let mut s = subject.trim();
     loop {
@@ -26,7 +26,7 @@ fn normalized(text: &str) -> String {
 }
 
 /// Ids of messages whose whole text is contained in a later message of the
-/// same conversation – Outlook's "Unterhaltung aufräumen".
+/// same conversation – Outlook's "Clean Up Conversation".
 pub fn redundant(messages: &[Message]) -> Vec<i64> {
     let mut out = vec![];
     for m in messages {
@@ -81,29 +81,31 @@ mod tests {
 
     #[test]
     fn keys_ignore_prefixes() {
-        assert_eq!(key("AW: WG: Angebot"), "angebot");
-        assert_eq!(key("Re: angebot"), "angebot");
+        assert_eq!(key("AW: WG: Quote"), "quote");
+        assert_eq!(key("RE: FW: Quote"), "quote");
+        assert_eq!(key("Re: quote"), "quote");
+        assert_eq!(key("Fwd: Quote"), "quote");
     }
 
     #[test]
     fn finds_quoted_messages() {
         let first = msg(
             1,
-            "Angebot",
+            "Quote",
             "2026-10-01T10:00:00Z",
-            "Können Sie uns bis Freitag ein Angebot schicken?",
+            "Could you send us a quote by Friday?",
         );
         let reply = msg(
             2,
-            "AW: Angebot",
+            "RE: Quote",
             "2026-10-02T10:00:00Z",
-            "Gerne, anbei.\n\nVon: Lea\nBetreff: Angebot\n\nKönnen Sie uns bis Freitag ein Angebot schicken?",
+            "Sure, please find it attached.\n\nFrom: Lea\nSubject: Quote\n\nCould you send us a quote by Friday?",
         );
         let other = msg(
             3,
-            "Rechnung",
+            "Invoice",
             "2026-10-03T10:00:00Z",
-            "Können Sie uns bis Freitag ein Angebot schicken?",
+            "Could you send us a quote by Friday?",
         );
         assert_eq!(redundant(&[first, reply, other]), vec![1]);
     }

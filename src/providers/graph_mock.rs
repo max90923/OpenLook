@@ -55,51 +55,51 @@ async fn handler(State(log): State<Log>, method: Method, uri: Uri, body: Bytes) 
             ok(json!({ "id": folder_id(wk) }))
         }
         ("GET", "/me/mailFolders") => ok(json!({ "value": [
-            { "id": "F-INBOX", "displayName": "Posteingang" },
-            { "id": "F-SENT", "displayName": "Gesendete Elemente" },
-            { "id": "F-DRAFTS", "displayName": "Entwürfe" },
-            { "id": "F-TRASH", "displayName": "Gelöschte Elemente" },
-            { "id": "F-JUNK", "displayName": "Junk-E-Mail" },
-            { "id": "F-ARCHIVE", "displayName": "Archiv" },
-            { "id": "F-PROJ", "displayName": "Projekte", "childFolderCount": 1 }
+            { "id": "F-INBOX", "displayName": "Inbox" },
+            { "id": "F-SENT", "displayName": "Sent Items" },
+            { "id": "F-DRAFTS", "displayName": "Drafts" },
+            { "id": "F-TRASH", "displayName": "Deleted Items" },
+            { "id": "F-JUNK", "displayName": "Junk Email" },
+            { "id": "F-ARCHIVE", "displayName": "Archive" },
+            { "id": "F-PROJ", "displayName": "Projects", "childFolderCount": 1 }
         ]})),
         ("GET", "/me/mailFolders/F-PROJ/childFolders") => ok(json!({ "value": [
-            { "id": "F-OFFERS", "displayName": "Angebote", "childFolderCount": 0 }
+            { "id": "F-OFFERS", "displayName": "Quotes", "childFolderCount": 0 }
         ]})),
         ("GET", "/me/mailFolders/F-INBOX/messages") => ok(json!({ "value": [{
             "id": "M1",
-            "subject": "Angebot Q4",
+            "subject": "Quote Q4",
             "from": { "emailAddress": { "name": "Lea Fischer", "address": "lea@fabrikam.com" } },
-            "toRecipients": [{ "emailAddress": { "name": "Ich", "address": "me@contoso.com" } }],
+            "toRecipients": [{ "emailAddress": { "name": "Me", "address": "me@contoso.com" } }],
             "ccRecipients": [],
             "receivedDateTime": "2026-10-28T08:15:00Z",
-            "bodyPreview": "Anbei das Angebot",
-            "body": { "contentType": "html", "content": "<p>Anbei das <b>Angebot</b></p>" },
+            "bodyPreview": "Please find the quote attached",
+            "body": { "contentType": "html", "content": "<p>Please find the <b>quote</b> attached</p>" },
             "isRead": false,
             "flag": { "flagStatus": "flagged" },
             "hasAttachments": true,
             "importance": "high",
-            "categories": ["Rote Kategorie"]
+            "categories": ["Red Category"]
         }]})),
         ("GET", p) if p.starts_with("/me/mailFolders/") && p.ends_with("/messages") => {
             ok(json!({ "value": [] }))
         }
         ("GET", "/me/messages/M1/attachments") => ok(json!({ "value": [{
             "@odata.type": "#microsoft.graph.fileAttachment",
-            "name": "angebot.pdf",
+            "name": "quote.pdf",
             "contentType": "application/pdf",
-            "contentBytes": base64::engine::general_purpose::STANDARD.encode(b"%PDF-1.4 Angebot")
+            "contentBytes": base64::engine::general_purpose::STANDARD.encode(b"%PDF-1.4 Quote")
         }]})),
         ("PATCH", "/me/messages/M1") => ok(json!({ "id": "M1" })),
         ("POST", "/me/messages/M1/move") => ok(json!({ "id": "M1-MOVED" })),
         ("POST", "/me/sendMail") => StatusCode::ACCEPTED.into_response(),
         ("GET", "/me/calendarView") => ok(json!({ "value": [{
             "id": "E1",
-            "subject": "Projektbesprechung",
+            "subject": "Project meeting",
             "start": { "dateTime": "2026-11-02T09:00:00.0000000", "timeZone": "UTC" },
             "end": { "dateTime": "2026-11-02T10:00:00.0000000", "timeZone": "UTC" },
             "isAllDay": false,
-            "location": { "displayName": "Raum 4" },
+            "location": { "displayName": "Room 4" },
             "body": { "contentType": "html", "content": "<p>Agenda</p>" },
             "attendees": [{ "emailAddress": { "address": "me@contoso.com" } }],
             "showAs": "tentative",
@@ -107,7 +107,7 @@ async fn handler(State(log): State<Log>, method: Method, uri: Uri, body: Bytes) 
             "isReminderOn": true,
             "reminderMinutesBeforeStart": 15,
             "isOrganizer": false,
-            "organizer": { "emailAddress": { "address": "chef@contoso.com" } },
+            "organizer": { "emailAddress": { "address": "boss@contoso.com" } },
             "responseStatus": { "response": "notResponded" }
         }]})),
         ("POST", "/me/events") => ok(json!({ "id": "E-NEW" })),
@@ -122,7 +122,7 @@ async fn handler(State(log): State<Log>, method: Method, uri: Uri, body: Bytes) 
                 }]
             },
             {
-                "scheduleId": "extern@example.org",
+                "scheduleId": "external@example.org",
                 "error": { "message": "Free/busy information is not available", "responseCode": "ErrorMailRecipientNotFound" }
             }
         ]})),
@@ -133,16 +133,16 @@ async fn handler(State(log): State<Log>, method: Method, uri: Uri, body: Bytes) 
             "mobilePhone": "+49 170 1234567",
             "businessPhones": [],
             "companyName": "Fabrikam AG",
-            "jobTitle": "Einkauf",
-            "businessAddress": { "street": "Hauptstr. 1", "postalCode": "10115", "city": "Berlin" },
+            "jobTitle": "Purchasing",
+            "businessAddress": { "street": "1 High Street", "postalCode": "10115", "city": "Berlin" },
             "personalNotes": ""
         }]})),
         ("GET", "/me/todo/lists") => ok(
-            json!({ "value": [{ "id": "L1", "displayName": "Aufgaben", "wellknownListName": "defaultList" }] }),
+            json!({ "value": [{ "id": "L1", "displayName": "Tasks", "wellknownListName": "defaultList" }] }),
         ),
         ("GET", "/me/todo/lists/L1/tasks") => ok(json!({ "value": [{
             "id": "T1",
-            "title": "Angebot prüfen",
+            "title": "Review quote",
             "status": "notStarted",
             "importance": "high",
             "dueDateTime": { "dateTime": "2026-11-03T00:00:00.0000000", "timeZone": "UTC" },
@@ -153,7 +153,7 @@ async fn handler(State(log): State<Log>, method: Method, uri: Uri, body: Bytes) 
             "externalAudience": "all",
             "scheduledStartDateTime": { "dateTime": "2026-12-20T08:00:00.0000000", "timeZone": "UTC" },
             "scheduledEndDateTime": { "dateTime": "2027-01-06T08:00:00.0000000", "timeZone": "UTC" },
-            "internalReplyMessage": "<p>Bin im Urlaub</p>",
+            "internalReplyMessage": "<p>I am on vacation</p>",
             "externalReplyMessage": "<p>Out of office</p>"
         })),
         ("PATCH", "/me/mailboxSettings") => ok(json!({})),
@@ -192,7 +192,7 @@ async fn microsoft_365_against_mock_graph() {
     let acc = db::insert_account(
         &state.db(),
         AccountKind::Graph,
-        "Ich",
+        "Me",
         "me@contoso.com",
         &serde_json::to_string(&cfg).unwrap(),
     )
@@ -204,19 +204,19 @@ async fn microsoft_365_against_mock_graph() {
     for role in ["inbox", "sent", "drafts", "trash", "junk", "archive"] {
         assert!(
             folders.iter().any(|f| f.role == role),
-            "Ordnerrolle {role} fehlt"
+            "folder role {role} missing"
         );
     }
     assert!(folders
         .iter()
-        .any(|f| f.name == "Projekte" && f.role == "other"));
+        .any(|f| f.name == "Projects" && f.role == "other"));
     let pos = |name: &str| folders.iter().position(|f| f.name == name).unwrap();
     assert_eq!(
-        pos("Angebote"),
-        pos("Projekte") + 1,
-        "Unterordner folgt seinem Ordner"
+        pos("Quotes"),
+        pos("Projects") + 1,
+        "subfolder follows its parent folder"
     );
-    assert_eq!(folders[pos("Angebote")].depth, 1);
+    assert_eq!(folders[pos("Quotes")].depth, 1);
     let inbox = db::folder_by_role(&state.db(), acc, "inbox")
         .unwrap()
         .unwrap();
@@ -236,10 +236,10 @@ async fn microsoft_365_against_mock_graph() {
             m.from_name.as_str(),
             m.importance.as_str()
         ),
-        ("Angebot Q4", "Lea Fischer", "high")
+        ("Quote Q4", "Lea Fischer", "high")
     );
     assert!(!m.is_read && m.is_flagged && m.has_attachments);
-    assert_eq!(m.categories, vec!["Rote Kategorie"]);
+    assert_eq!(m.categories, vec!["Red Category"]);
     assert_eq!(m.date, "2026-10-28T08:15:00Z");
 
     let events =
@@ -253,19 +253,14 @@ async fn microsoft_365_against_mock_graph() {
             e.show_as.as_str(),
             e.reminder
         ),
-        (
-            "Projektbesprechung",
-            "2026-11-02T09:00:00Z",
-            "tentative",
-            15
-        )
+        ("Project meeting", "2026-11-02T09:00:00Z", "tentative", 15)
     );
     assert_eq!(
         (e.response.as_str(), e.organizer.as_str()),
-        ("notResponded", "chef@contoso.com")
+        ("notResponded", "boss@contoso.com")
     );
     let contacts = db::list_contacts(&state.db()).unwrap();
-    assert_eq!(contacts[0].address, "Hauptstr. 1, 10115, Berlin");
+    assert_eq!(contacts[0].address, "1 High Street, 10115, Berlin");
     let tasks = db::list_tasks(&state.db()).unwrap();
     assert_eq!(
         (
@@ -273,7 +268,7 @@ async fn microsoft_365_against_mock_graph() {
             tasks[0].due.as_str(),
             tasks[0].important
         ),
-        ("Angebot prüfen", "2026-11-03", true)
+        ("Review quote", "2026-11-03", true)
     );
 
     // --- attachments on demand
@@ -281,7 +276,7 @@ async fn microsoft_365_against_mock_graph() {
     let atts = db::attachments_with_data(&state.db(), m.id).unwrap();
     assert_eq!(
         (atts[0].name.as_str(), atts[0].data.as_slice()),
-        ("angebot.pdf", b"%PDF-1.4 Angebot".as_slice())
+        ("quote.pdf", b"%PDF-1.4 Quote".as_slice())
     );
 
     // --- flags and categories go to the server
@@ -291,7 +286,7 @@ async fn microsoft_365_against_mock_graph() {
         &MessagePatch {
             is_read: Some(true),
             is_flagged: Some(false),
-            categories: Some(vec!["Blaue Kategorie".into()]),
+            categories: Some(vec!["Blue Category".into()]),
             ..Default::default()
         },
     )
@@ -300,10 +295,10 @@ async fn microsoft_365_against_mock_graph() {
     let patch = &requests(&log, "PATCH", "/me/messages/M1")[0].1;
     assert_eq!(patch["isRead"], true);
     assert_eq!(patch["flag"]["flagStatus"], "notFlagged");
-    assert_eq!(patch["categories"][0], "Blaue Kategorie");
+    assert_eq!(patch["categories"][0], "Blue Category");
 
     // --- move keeps the new server id
-    let projects = folders.iter().find(|f| f.name == "Projekte").unwrap();
+    let projects = folders.iter().find(|f| f.name == "Projects").unwrap();
     providers::move_message(&state, m.id, projects.id)
         .await
         .unwrap();
@@ -319,12 +314,12 @@ async fn microsoft_365_against_mock_graph() {
         &OutgoingMail {
             account_id: acc,
             to: "Lea Fischer <lea@fabrikam.com>".into(),
-            cc: "chef@contoso.com".into(),
-            subject: "AW: Angebot Q4".into(),
-            body_html: "<p>Danke</p>".into(),
+            cc: "boss@contoso.com".into(),
+            subject: "RE: Quote Q4".into(),
+            body_html: "<p>Thanks</p>".into(),
             importance: "high".into(),
             attachments: vec![NewAttachment {
-                name: "antwort.txt".into(),
+                name: "reply.txt".into(),
                 mime: "text/plain".into(),
                 data: b"ok".to_vec(),
             }],
@@ -340,7 +335,7 @@ async fn microsoft_365_against_mock_graph() {
     );
     assert_eq!(
         sent["message"]["ccRecipients"][0]["emailAddress"]["address"],
-        "chef@contoso.com"
+        "boss@contoso.com"
     );
     assert_eq!(sent["message"]["importance"], "high");
     assert_eq!(
@@ -354,7 +349,7 @@ async fn microsoft_365_against_mock_graph() {
         &state,
         Event {
             account_id: acc,
-            title: "Jour fixe".into(),
+            title: "Weekly sync".into(),
             start: "2026-11-02T08:00:00Z".into(),
             end: "2026-11-02T08:30:00Z".into(),
             recurrence: "weekly;1;1;2027-01-31".into(),
@@ -391,8 +386,8 @@ async fn microsoft_365_against_mock_graph() {
         "accepted"
     );
 
-    // --- Terminplanungs-Assistent: own calendar locally, others via getSchedule
-    let people: Vec<String> = ["me@contoso.com", "lea@fabrikam.com", "extern@example.org"]
+    // --- Scheduling Assistant: own calendar locally, others via getSchedule
+    let people: Vec<String> = ["me@contoso.com", "lea@fabrikam.com", "external@example.org"]
         .map(String::from)
         .to_vec();
     let fb = providers::free_busy(
@@ -412,14 +407,14 @@ async fn microsoft_365_against_mock_graph() {
     let req = &requests(&log, "POST", "/me/calendar/getSchedule")[0].1;
     assert_eq!(
         req["schedules"],
-        json!(["lea@fabrikam.com", "extern@example.org"])
+        json!(["lea@fabrikam.com", "external@example.org"])
     );
     assert_eq!(req["startTime"]["dateTime"], "2026-11-02T00:00:00");
 
     // --- automatic replies
     let mut ar = providers::graph::get_auto_reply(&state, acc).await.unwrap();
     assert!(ar.enabled && ar.scheduled);
-    assert_eq!(ar.internal, "Bin im Urlaub");
+    assert_eq!(ar.internal, "I am on vacation");
     assert_eq!(ar.start, "2026-12-20T08:00:00");
     ar.enabled = false;
     providers::graph::set_auto_reply(&state, acc, &ar)

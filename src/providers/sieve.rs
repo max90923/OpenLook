@@ -28,7 +28,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
     async fn line(&mut self) -> Result<String> {
         let mut l = String::new();
         if self.io.read_line(&mut l).await? == 0 {
-            bail!("ManageSieve-Verbindung unerwartet beendet");
+            bail!("ManageSieve connection closed unexpectedly");
         }
         Ok(l.trim_end_matches(['\r', '\n']).to_string())
     }
@@ -82,13 +82,13 @@ async fn session<T>(
 ) -> Result<T> {
     let tcp = TcpStream::connect((cfg.imap_host.as_str(), PORT))
         .await
-        .with_context(|| format!("ManageSieve auf {}:{PORT} nicht erreichbar – der Server unterstützt keine Abwesenheitsnotizen über ManageSieve", cfg.imap_host))?;
+        .with_context(|| format!("ManageSieve on {}:{PORT} is not reachable – the server does not support automatic replies via ManageSieve", cfg.imap_host))?;
     let mut plain = Conn {
         io: BufReader::new(tcp),
     };
     let caps = plain.response().await?.join("\n").to_ascii_uppercase();
     if !caps.contains("\"STARTTLS\"") {
-        bail!("Der ManageSieve-Server bietet kein STARTTLS an");
+        bail!("The ManageSieve server does not offer STARTTLS");
     }
     plain.cmd("STARTTLS").await?;
     let tcp = plain.io.into_inner();
@@ -105,7 +105,7 @@ async fn session<T>(
         .encode(format!("\0{}\0{}", cfg.username, cfg.password));
     conn.cmd(&format!("AUTHENTICATE \"PLAIN\" {}", quote(&auth)))
         .await
-        .map_err(|e| anyhow!("ManageSieve-Anmeldung fehlgeschlagen: {e}"))?;
+        .map_err(|e| anyhow!("ManageSieve sign-in failed: {e}"))?;
     let res = f(&mut conn).await;
     let _ = conn.cmd("LOGOUT").await;
     res
@@ -127,7 +127,7 @@ pub fn script(a: &AutoReply) -> String {
         .collect::<Vec<_>>()
         .join("\r\n");
     let vacation =
-        format!("vacation :days 1 :subject \"Automatische Antwort\" text:\r\n{text}\r\n.\r\n;\r\n");
+        format!("vacation :days 1 :subject \"Automatic reply\" text:\r\n{text}\r\n.\r\n;\r\n");
     let body = if a.scheduled {
         let day = |s: &str| s.chars().take(10).collect::<String>();
         format!(
@@ -202,15 +202,15 @@ mod tests {
             scheduled: true,
             start: "2026-12-20T08:00:00".into(),
             end: "2027-01-06T08:00:00".into(),
-            internal: "Bin im Urlaub.\n.Punkt am Anfang".into(),
+            internal: "I am on vacation.\n.Dot at the start".into(),
             external: String::new(),
         };
         let s = script(&a);
         assert!(s.contains("require [\"vacation\", \"date\", \"relational\"];"));
         assert!(s.contains("currentdate :value \"ge\" \"date\" \"2026-12-20\""));
         assert!(
-            s.contains("\r\n..Punkt am Anfang\r\n.\r\n;"),
-            "Punkt-Zeilen werden verdoppelt"
+            s.contains("\r\n..Dot at the start\r\n.\r\n;"),
+            "lines starting with a dot are doubled"
         );
         assert_eq!(parse(&s).unwrap(), a);
     }

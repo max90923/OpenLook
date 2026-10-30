@@ -318,10 +318,7 @@ impl App {
         });
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.add_sized(
-                [NAME_W - 10.0, 24.0],
-                egui::Label::new("Add Attendees:"),
-            );
+            ui.add_sized([NAME_W - 10.0, 24.0], egui::Label::new("Add Attendees:"));
             let contacts = self.data.contacts.clone();
             let groups = self.data.groups.clone();
             super::compose::address_field(ui, "planner_add", &mut p.add, &contacts, &groups, 300.0);
@@ -338,10 +335,7 @@ impl App {
         });
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.add_sized(
-                [NAME_W - 10.0, 24.0],
-                egui::Label::new("Start time:"),
-            );
+            ui.add_sized([NAME_W - 10.0, 24.0], egui::Label::new("Start time:"));
             ui.add(
                 egui_extras::DatePickerButton::new(m.start_date)
                     .id_salt("pl_sd")

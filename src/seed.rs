@@ -17,18 +17,18 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
     let acc = db::insert_account(
         c,
         AccountKind::Local,
-        "Lokales Postfach",
-        "ich@openlook.local",
+        "Local Mailbox",
+        "me@openlook.local",
         "{}",
     )?;
     let mut ids = std::collections::HashMap::new();
     for (rid, name, role) in [
-        ("inbox", "Posteingang", "inbox"),
-        ("drafts", "Entwürfe", "drafts"),
-        ("sent", "Gesendete Elemente", "sent"),
-        ("trash", "Gelöschte Elemente", "trash"),
-        ("junk", "Junk-E-Mail", "junk"),
-        ("archive", "Archiv", "archive"),
+        ("inbox", "Inbox", "inbox"),
+        ("drafts", "Drafts", "drafts"),
+        ("sent", "Sent Items", "sent"),
+        ("trash", "Deleted Items", "trash"),
+        ("junk", "Junk Email", "junk"),
+        ("archive", "Archive", "archive"),
     ] {
         ids.insert(role, db::upsert_folder(c, acc, rid, name, role)?);
     }
@@ -36,16 +36,16 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
     let now = Utc::now();
     let fmt = |d: chrono::DateTime<Utc>| d.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let mails = [
-        ("Willkommen bei OpenLook", "OpenLook Team", "team@openlook.local", 0, false, true,
-         "<h2>Willkommen!</h2><p>Dies ist dein lokales Postfach. Verbinde ein echtes Konto über <b>Datei &gt; Konto hinzufügen</b>:</p><ul><li><b>Microsoft 365 / Outlook.com</b> über Microsoft Graph</li><li><b>Jedes IMAP/SMTP-Konto</b> (Gmail, GMX, web.de, Posteo …)</li></ul><p>Tastenkombinationen wie in Outlook: <code>Strg+N</code> neue E-Mail, <code>Strg+R</code> antworten, <code>Strg+F</code> weiterleiten, <code>Entf</code> löschen, <code>Strg+Q</code> als gelesen markieren, <code>Strg+E</code> suchen, <code>F9</code> Senden/Empfangen.</p>"),
-        ("Projekt-Kickoff am Donnerstag", "Anna Schmidt", "anna.schmidt@example.com", 2, true, false,
-         "<p>Hallo,</p><p>anbei die Agenda für den Kickoff. Bitte bringt eure Fragen mit.</p><p>Viele Grüße<br>Anna</p>"),
-        ("Rechnung 2026-1042", "Buchhaltung", "rechnung@example.com", 26, false, false,
-         "<p>Sehr geehrte Damen und Herren,</p><p>im Anhang finden Sie die Rechnung für Oktober.</p>"),
-        ("Re: Urlaubsplanung", "Jonas Weber", "jonas.weber@example.com", 50, false, false,
-         "<p>Passt für mich, ich trage es in den Teamkalender ein.</p><p>Jonas</p>"),
-        ("Dein Wochenbericht", "Insights", "insights@example.com", 120, false, false,
-         "<p>Du hast diese Woche 12 Besprechungen besucht und 48 E-Mails gesendet.</p>"),
+        ("Welcome to OpenLook", "OpenLook Team", "team@openlook.local", 0, false, true,
+         "<h2>Welcome!</h2><p>This is your local mailbox. Connect a real account via <b>File &gt; Add Account</b>:</p><ul><li><b>Microsoft 365 / Outlook.com</b> via Microsoft Graph</li><li><b>Any IMAP/SMTP account</b> (Gmail, GMX, web.de, Posteo …)</li></ul><p>The keyboard shortcuts you already know: <code>Ctrl+N</code> new email, <code>Ctrl+R</code> reply, <code>Ctrl+F</code> forward, <code>Del</code> delete, <code>Ctrl+Q</code> mark as read, <code>Ctrl+E</code> search, <code>F9</code> Send / Receive.</p>"),
+        ("Project kick-off on Thursday", "Anna Schmidt", "anna.schmidt@example.com", 2, true, false,
+         "<p>Hi all,</p><p>please find attached the agenda for the kick-off. Bring your questions along.</p><p>Best regards<br>Anna</p>"),
+        ("Invoice 2026-1042", "Accounts", "invoice@example.com", 26, false, false,
+         "<p>Dear Sir or Madam,</p><p>please find attached the invoice for October.</p>"),
+        ("Re: Vacation planning", "Jonas Weber", "jonas.weber@example.com", 50, false, false,
+         "<p>Works for me, I'll add it to the team calendar.</p><p>Jonas</p>"),
+        ("Your weekly report", "Insights", "insights@example.com", 120, false, false,
+         "<p>This week you attended 12 meetings and sent 48 emails.</p>"),
     ];
     for (i, (subject, from_name, from_addr, hours_ago, flagged, unread, html)) in
         mails.into_iter().enumerate()
@@ -60,7 +60,7 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
                 subject: subject.into(),
                 from_name: from_name.into(),
                 from_addr: from_addr.into(),
-                to: "ich@openlook.local".into(),
+                to: "me@openlook.local".into(),
                 date: fmt(now - Duration::hours(hours_ago)),
                 preview: mail::make_preview(&text),
                 body_html: html.into(),
@@ -75,9 +75,9 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
                 // The invoice comes with a document, like the real thing.
                 attachments: if i == 2 {
                     vec![NewAttachment {
-                        name: "Rechnung_2026-1042.txt".into(),
+                        name: "Invoice_2026-1042.txt".into(),
                         mime: "text/plain".into(),
-                        data: "Rechnung 2026-1042\nLeistungszeitraum: Oktober 2026\nBetrag: 1.190,00 EUR\n".as_bytes().to_vec(),
+                        data: "Invoice 2026-1042\nService period: October 2026\nAmount: EUR 1,190.00\n".as_bytes().to_vec(),
                     }]
                 } else {
                     vec![]
@@ -100,28 +100,28 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
             at(0, 8, 0),
             at(0, 8, 15),
             "Teams",
-            "Blaue Kategorie",
+            "Blue Category",
         ),
         (
-            "Projekt-Kickoff",
+            "Project kick-off",
             at(2, 12, 0),
             at(2, 13, 30),
-            "Raum 4.12",
-            "Orange Kategorie",
+            "Room 4.12",
+            "Orange Category",
         ),
         (
-            "Mittagessen mit Jonas",
+            "Lunch with Jonas",
             at(1, 11, 0),
             at(1, 12, 0),
-            "Kantine",
-            "Grüne Kategorie",
+            "Canteen",
+            "Green Category",
         ),
         (
-            "1:1 mit Anna",
+            "1:1 with Anna",
             at(3, 14, 0),
             at(3, 14, 30),
             "",
-            "Lila Kategorie",
+            "Purple Category",
         ),
     ] {
         db::save_event(
@@ -145,21 +145,21 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
             "Anna Schmidt",
             "anna.schmidt@example.com",
             "Contoso GmbH",
-            "Projektleiterin",
+            "Project Manager",
             "+49 30 1234567",
         ),
         (
             "Jonas Weber",
             "jonas.weber@example.com",
             "Contoso GmbH",
-            "Entwickler",
+            "Developer",
             "+49 40 7654321",
         ),
         (
             "Lea Fischer",
             "lea.fischer@example.com",
             "Fabrikam AG",
-            "Einkauf",
+            "Purchasing",
             "",
         ),
     ] {
@@ -178,15 +178,15 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
     }
 
     for (title, due_days, important) in [
-        ("Agenda für Kickoff vorbereiten", Some(1), true),
-        ("Rechnung prüfen", Some(3), false),
-        ("Reisekosten einreichen", None, false),
+        ("Prepare kick-off agenda", Some(1), true),
+        ("Check invoice", Some(3), false),
+        ("Submit travel expenses", None, false),
     ] {
         db::save_task(
             c,
             &Task {
                 account_id: acc,
-                list_name: "Aufgaben".into(),
+                list_name: "Tasks".into(),
                 title: title.into(),
                 due: due_days
                     .map(|d| (today + Duration::days(d)).format("%Y-%m-%d").to_string())

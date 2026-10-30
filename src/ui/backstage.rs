@@ -114,19 +114,37 @@ impl App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(t.pane).inner_margin(egui::Margin { left: 40, right: 40, top: 24, bottom: 24 })).show(ctx, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match page {
-                Page::Info => self.account_info(ui),
-                Page::About => {
-                    ui.label(RichText::new("About OpenLook").size(34.0).color(t.text));
-                    ui.add_space(16.0);
-                    ui.label(format!("OpenLook {}", env!("CARGO_PKG_VERSION")));
-                    ui.label("Mail, Calendar, People and Tasks for IMAP/SMTP and Microsoft 365.");
-                    ui.add_space(8.0);
-                    ui.label(RichText::new(format!("Database: {}", std::env::var("OPENLOOK_DB").unwrap_or_else(|_| "default data directory".into()))).color(t.text_weak));
-                }
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(t.pane).inner_margin(egui::Margin {
+                left: 40,
+                right: 40,
+                top: 24,
+                bottom: 24,
+            }))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| match page {
+                        Page::Info => self.account_info(ui),
+                        Page::About => {
+                            ui.label(RichText::new("About OpenLook").size(34.0).color(t.text));
+                            ui.add_space(16.0);
+                            ui.label(format!("OpenLook {}", env!("CARGO_PKG_VERSION")));
+                            ui.label(
+                                "Mail, Calendar, People and Tasks for IMAP/SMTP and Microsoft 365.",
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "Database: {}",
+                                    std::env::var("OPENLOOK_DB")
+                                        .unwrap_or_else(|_| "default data directory".into())
+                                ))
+                                .color(t.text_weak),
+                            );
+                        }
+                    });
             });
-        });
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.backstage = None;
         }
@@ -161,13 +179,10 @@ impl App {
         if ok {
             let (owner, address) = (*owner, address.trim().to_string());
             self.shared_dialog = None;
-            self.spawn(
-                Some("Shared mailbox added."),
-                move |st, _| async move {
-                    let id = providers::graph::add_shared_mailbox(&st, owner, &address).await?;
-                    providers::sync(&st, id).await
-                },
-            );
+            self.spawn(Some("Shared mailbox added."), move |st, _| async move {
+                let id = providers::graph::add_shared_mailbox(&st, owner, &address).await?;
+                providers::sync(&st, id).await
+            });
         } else if !open {
             self.shared_dialog = None;
         }
@@ -176,7 +191,11 @@ impl App {
     fn account_info(&mut self, ui: &mut egui::Ui) {
         self.shared_mailbox_dialog(ui.ctx());
         let t = self.t;
-        ui.label(RichText::new("Account Information").size(34.0).color(t.text));
+        ui.label(
+            RichText::new("Account Information")
+                .size(34.0)
+                .color(t.text),
+        );
         ui.add_space(18.0);
         let accounts = self.data.accounts.clone();
         let sel_id = ui.ctx().data_mut(|d| {
@@ -281,9 +300,7 @@ impl App {
         };
 
         let detail = match acc.kind {
-            AccountKind::Local => {
-                "This mailbox is stored only on this computer.".to_string()
-            }
+            AccountKind::Local => "This mailbox is stored only on this computer.".to_string(),
             _ => format!(
                 "Last synchronized: {}{}",
                 acc.last_sync
@@ -313,14 +330,11 @@ impl App {
             if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Add Account…") {
                 self.open_add_account();
             }
-            if is_owner_graph
-                && chrome::menu_item(ui, ph::USERS, IC_BLUE, "Add Shared Mailbox…")
+            if is_owner_graph && chrome::menu_item(ui, ph::USERS, IC_BLUE, "Add Shared Mailbox…")
             {
                 self.shared_dialog = Some((acc_id, String::new()));
             }
-            if !is_local
-                && chrome::menu_item(ui, ph::ARROWS_CLOCKWISE, IC_BLUE, "Sync now")
-            {
+            if !is_local && chrome::menu_item(ui, ph::ARROWS_CLOCKWISE, IC_BLUE, "Sync now") {
                 self.spawn(Some("Account synchronized."), move |st, _| async move {
                     providers::sync(&st, acc_id).await
                 });
@@ -364,12 +378,7 @@ impl App {
             &format!("Manage the size of your mailbox by emptying Deleted Items.\nDeleted Items: {trash_count}"),
         );
         chrome::menu(&r, |ui| {
-            if chrome::menu_item(
-                ui,
-                ph::TRASH,
-                t.danger,
-                "Empty Deleted Items Folder",
-            ) {
+            if chrome::menu_item(ui, ph::TRASH, t.danger, "Empty Deleted Items Folder") {
                 if let Some(folder) = trash {
                     let ids: Vec<i64> = db::list_messages(
                         &self.st.db(),
@@ -533,10 +542,7 @@ impl App {
         );
         if ok {
             if o.work_end <= o.work_start {
-                self.toast(
-                    "The end of the work time must be after the start.",
-                    true,
-                );
+                self.toast("The end of the work time must be after the start.", true);
                 return false;
             }
             self.prefs.design = o.design;
@@ -598,14 +604,8 @@ impl App {
             _ => None,
         };
         let device = self.device_code.clone();
-        let closed = chrome::native_window(
-            ctx,
-            vid,
-            "Add Account",
-            [560.0, 600.0],
-            &t,
-            |ui| {
-                egui::Frame::new().inner_margin(egui::Margin { left: 40, right: 40, top: 30, bottom: 20 }).show(ui, |ui| {
+        let closed = chrome::native_window(ctx, vid, "Add Account", [560.0, 600.0], &t, |ui| {
+            egui::Frame::new().inner_margin(egui::Margin { left: 40, right: 40, top: 30, bottom: 20 }).show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.label(RichText::new(ph::ENVELOPE_SIMPLE).size(44.0).color(IC_BLUE));
                     ui.label(RichText::new("OpenLook").size(26.0));
@@ -763,8 +763,7 @@ impl App {
                     }
                 }
             });
-            },
-        );
+        });
         if start_imap {
             a.started = Some(Instant::now());
             a.graph = false;
@@ -946,10 +945,9 @@ impl App {
                 return false;
             }
             let id = a.account_id;
-            self.spawn(
-                Some("Automatic replies saved."),
-                move |st, _| async move { providers::set_auto_reply(&st, id, &data).await },
-            );
+            self.spawn(Some("Automatic replies saved."), move |st, _| async move {
+                providers::set_auto_reply(&st, id, &data).await
+            });
             return true;
         }
         cancel || closed

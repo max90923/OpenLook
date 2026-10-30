@@ -188,9 +188,7 @@ impl App {
                             );
                         });
                         ui.add_space(6.0);
-                        ui.label(
-                            "Click Snooze to be reminded in:",
-                        );
+                        ui.label("Click Snooze to be reminded in:");
                         ui.horizontal(|ui| {
                             egui::ComboBox::from_id_salt("snooze")
                                 .width(160.0)

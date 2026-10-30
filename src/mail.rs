@@ -150,7 +150,7 @@ pub fn parse_rfc822(remote_id: String, raw: &[u8]) -> NewMessage {
     let Some(msg) = MessageParser::default().parse(raw) else {
         return NewMessage {
             remote_id,
-            subject: "(nicht lesbare Nachricht)".into(),
+            subject: "(unreadable message)".into(),
             ..Default::default()
         };
     };
@@ -174,7 +174,7 @@ pub fn parse_rfc822(remote_id: String, raw: &[u8]) -> NewMessage {
     };
     NewMessage {
         remote_id,
-        subject: msg.subject().unwrap_or("(kein Betreff)").to_string(),
+        subject: msg.subject().unwrap_or("(no subject)").to_string(),
         from_name: from.and_then(|a| a.name()).unwrap_or_default().to_string(),
         from_addr: from
             .and_then(|a| a.address())
@@ -201,7 +201,7 @@ pub fn parse_rfc822(remote_id: String, raw: &[u8]) -> NewMessage {
                 name: a
                     .attachment_name()
                     .map(String::from)
-                    .unwrap_or_else(|| format!("Anlage {}", i + 1)),
+                    .unwrap_or_else(|| format!("Attachment {}", i + 1)),
                 mime: a
                     .content_type()
                     .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or("octet-stream")))
@@ -220,42 +220,42 @@ mod tests {
 
     #[test]
     fn parses_simple_mail() {
-        let raw = b"From: Alice Example <alice@example.com>\r\nTo: bob@example.com\r\nSubject: Hallo\r\nDate: Tue, 3 Mar 2026 10:00:00 +0100\r\nImportance: High\r\n\r\nZeile eins\r\nZeile zwei\r\n";
+        let raw = b"From: Alice Example <alice@example.com>\r\nTo: bob@example.com\r\nSubject: Hello\r\nDate: Tue, 3 Mar 2026 10:00:00 +0100\r\nImportance: High\r\n\r\nLine one\r\nLine two\r\n";
         let m = parse_rfc822("7".into(), raw);
-        assert_eq!(m.subject, "Hallo");
+        assert_eq!(m.subject, "Hello");
         assert_eq!(m.from_name, "Alice Example");
         assert_eq!(m.from_addr, "alice@example.com");
         assert_eq!(m.to, "bob@example.com");
         assert_eq!(m.date, "2026-03-03T09:00:00Z");
         assert_eq!(m.importance, "high");
-        assert_eq!(m.preview, "Zeile eins Zeile zwei");
-        assert!(m.body_html.contains("Zeile eins"));
+        assert_eq!(m.preview, "Line one Line two");
+        assert!(m.body_html.contains("Line one"));
     }
 
     #[test]
     fn keeps_line_breaks() {
         assert_eq!(
-            strip_html("<p>Hallo</p><p>Welt<br>zwei</p>"),
-            "Hallo\n\nWelt\nzwei"
+            strip_html("<p>Hello</p><p>World<br>two</p>"),
+            "Hello\n\nWorld\ntwo"
         );
     }
 
     #[test]
     fn parses_attachments() {
-        let raw = b"From: a@x.de\r\nSubject: Anlage\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=XX\r\n\r\n--XX\r\nContent-Type: text/plain\r\n\r\nText\r\n--XX\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"r.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nSGFsbG8=\r\n--XX--\r\n";
+        let raw = b"From: a@x.de\r\nSubject: Attachment\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=XX\r\n\r\n--XX\r\nContent-Type: text/plain\r\n\r\nText\r\n--XX\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"r.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nSGVsbG8=\r\n--XX--\r\n";
         let m = parse_rfc822("1".into(), raw);
         assert!(m.has_attachments);
         assert_eq!(m.attachments.len(), 1);
         assert_eq!(m.attachments[0].name, "r.pdf");
         assert_eq!(m.attachments[0].mime, "application/pdf");
-        assert_eq!(m.attachments[0].data, b"Hallo");
+        assert_eq!(m.attachments[0].data, b"Hello");
     }
 
     #[test]
     fn strips_html() {
         assert_eq!(
-            make_preview(&strip_html("<style>p{}</style><p>Hi &amp; <b>du</b></p>")),
-            "Hi & du"
+            make_preview(&strip_html("<style>p{}</style><p>Hi &amp; <b>you</b></p>")),
+            "Hi & you"
         );
     }
 }

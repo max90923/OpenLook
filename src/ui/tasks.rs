@@ -121,15 +121,7 @@ impl App {
             .and_then(|id| self.data.tasks.iter().find(|x| x.id == id))
             .cloned();
         chrome::group(ui, &t, "New", |ui| {
-            if chrome::large(
-                ui,
-                &t,
-                ph::CHECK_SQUARE_OFFSET,
-                IC_GREEN,
-                "New\nTask",
-                true,
-            )
-            .clicked()
+            if chrome::large(ui, &t, ph::CHECK_SQUARE_OFFSET, IC_GREEN, "New\nTask", true).clicked()
             {
                 self.new_task();
             }
@@ -603,15 +595,8 @@ impl App {
         let closed = chrome::native_window(ctx, vid, &title, [760.0, 540.0], &th, |ui| {
             chrome::item_ribbon(ui, &th, "Task", |ui| {
                 chrome::group(ui, &th, "Actions", |ui| {
-                    if chrome::large(
-                        ui,
-                        &th,
-                        ph::FLOPPY_DISK,
-                        IC_PURPLE,
-                        "Save &\nClose",
-                        true,
-                    )
-                    .clicked()
+                    if chrome::large(ui, &th, ph::FLOPPY_DISK, IC_PURPLE, "Save &\nClose", true)
+                        .clicked()
                     {
                         save = true;
                     }
@@ -689,11 +674,7 @@ impl App {
                                     "Not Started"
                                 })
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut ed.t.completed,
-                                        false,
-                                        "Not Started",
-                                    );
+                                    ui.selectable_value(&mut ed.t.completed, false, "Not Started");
                                     ui.selectable_value(&mut ed.t.completed, true, "Completed");
                                 });
                             ui.end_row();

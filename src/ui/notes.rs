@@ -232,12 +232,7 @@ impl App {
                     ui.label(RichText::new("Notes").size(17.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.allocate_ui(egui::vec2(320.0, 26.0), |ui| {
-                            super::search_box(
-                                ui,
-                                &t,
-                                &mut self.search,
-                                "Search Notes (Ctrl+E)",
-                            );
+                            super::search_box(ui, &t, &mut self.search, "Search Notes (Ctrl+E)");
                         });
                     });
                 });
@@ -549,12 +544,7 @@ impl App {
                     ui.label(RichText::new("Journal").size(17.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.allocate_ui(egui::vec2(320.0, 26.0), |ui| {
-                            super::search_box(
-                                ui,
-                                &t,
-                                &mut self.search,
-                                "Search Journal (Ctrl+E)",
-                            );
+                            super::search_box(ui, &t, &mut self.search, "Search Journal (Ctrl+E)");
                         });
                     });
                 });
@@ -682,15 +672,8 @@ impl App {
         let closed = chrome::native_window(ctx, vid, &title, [760.0, 560.0], &t, |ui| {
             chrome::item_ribbon(ui, &t, "Journal Entry", |ui| {
                 chrome::group(ui, &t, "Actions", |ui| {
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::FLOPPY_DISK,
-                        IC_PURPLE,
-                        "Save &\nClose",
-                        true,
-                    )
-                    .clicked()
+                    if chrome::large(ui, &t, ph::FLOPPY_DISK, IC_PURPLE, "Save &\nClose", true)
+                        .clicked()
                     {
                         save = true;
                     }
@@ -705,9 +688,7 @@ impl App {
                     {
                         ed.timer = Some((Instant::now(), ed.e.minutes));
                     }
-                    if chrome::large(ui, &t, ph::STOP, IC_RED, "Pause\nTimer", running)
-                        .clicked()
-                    {
+                    if chrome::large(ui, &t, ph::STOP, IC_RED, "Pause\nTimer", running).clicked() {
                         ed.timer = None;
                     }
                 });
