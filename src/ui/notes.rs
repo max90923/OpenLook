@@ -1,4 +1,4 @@
-//! "Notizen" (sticky notes) and "Journal" modules.
+//! "Notes" (sticky notes) and "Journal" modules.
 
 use std::time::Instant;
 
@@ -13,21 +13,21 @@ use super::{
 use crate::{db, models::*};
 
 pub const NOTE_COLORS: [(&str, &str, Color32); 5] = [
-    ("yellow", "Gelb", Color32::from_rgb(255, 241, 165)),
-    ("blue", "Blau", Color32::from_rgb(201, 228, 250)),
-    ("green", "Grün", Color32::from_rgb(201, 238, 197)),
-    ("pink", "Rosa", Color32::from_rgb(250, 211, 230)),
-    ("white", "Weiß", Color32::from_rgb(250, 250, 250)),
+    ("yellow", "Yellow", Color32::from_rgb(255, 241, 165)),
+    ("blue", "Blue", Color32::from_rgb(201, 228, 250)),
+    ("green", "Green", Color32::from_rgb(201, 238, 197)),
+    ("pink", "Pink", Color32::from_rgb(250, 211, 230)),
+    ("white", "White", Color32::from_rgb(250, 250, 250)),
 ];
 
 pub const JOURNAL_KINDS: [&str; 7] = [
-    "Telefonanruf",
-    "Besprechung",
-    "E-Mail-Nachricht",
-    "Aufgabe",
-    "Dokument",
-    "Gespräch",
-    "Notiz",
+    "Phone call",
+    "Meeting",
+    "E-mail Message",
+    "Task",
+    "Document",
+    "Conversation",
+    "Note",
 ];
 
 fn note_color(c: &str) -> Color32 {
@@ -40,12 +40,12 @@ fn note_color(c: &str) -> Color32 {
 
 fn kind_icon(kind: &str) -> &'static str {
     match kind {
-        "Telefonanruf" => ph::PHONE_CALL,
-        "Besprechung" => ph::USERS_THREE,
-        "E-Mail-Nachricht" => ph::ENVELOPE_SIMPLE,
-        "Aufgabe" => ph::CHECK_SQUARE_OFFSET,
-        "Dokument" => ph::FILE_TEXT,
-        "Gespräch" => ph::CHATS,
+        "Phone call" => ph::PHONE_CALL,
+        "Meeting" => ph::USERS_THREE,
+        "E-mail Message" => ph::ENVELOPE_SIMPLE,
+        "Task" => ph::CHECK_SQUARE_OFFSET,
+        "Document" => ph::FILE_TEXT,
+        "Conversation" => ph::CHATS,
         _ => ph::NOTE,
     }
 }
@@ -124,25 +124,25 @@ impl App {
         }
         let t = self.t;
         let sel = self.notes.selected_note;
-        chrome::group(ui, &t, "Neu", |ui| {
-            if chrome::large(ui, &t, ph::NOTE, IC_YELLOW, "Neue\nNotiz", true).clicked() {
+        chrome::group(ui, &t, "New", |ui| {
+            if chrome::large(ui, &t, ph::NOTE, IC_YELLOW, "New\nNote", true).clicked() {
                 self.new_note();
             }
         });
-        chrome::group(ui, &t, "Löschen", |ui| {
-            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", sel.is_some()).clicked() {
+        chrome::group(ui, &t, "Delete", |ui| {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Delete", sel.is_some()).clicked() {
                 let _ = db::delete_note(&self.st.db(), sel.unwrap());
                 self.notes.selected_note = None;
                 self.reload_notes();
             }
         });
-        chrome::group(ui, &t, "Kategorien", |ui| {
+        chrome::group(ui, &t, "Tags", |ui| {
             let r = chrome::large(
                 ui,
                 &t,
                 ph::PALETTE,
                 IC_PURPLE,
-                "Farbe\n\u{E136}",
+                "Color\n\u{E136}",
                 sel.is_some(),
             );
             chrome::menu(&r, |ui| {
@@ -172,10 +172,10 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Aktuelle Ansicht", |ui| {
+        chrome::group(ui, &t, "Current View", |ui| {
             for (list, icon, label) in [
-                (false, ph::SQUARES_FOUR, "Symbol"),
-                (true, ph::LIST, "Notizenliste"),
+                (false, ph::SQUARES_FOUR, "Icon"),
+                (true, ph::LIST, "Notes List"),
             ] {
                 let on = self.notes.list_mode == list;
                 let r = chrome::large(
@@ -203,13 +203,13 @@ impl App {
 
     pub fn notes_nav(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        ui.label(RichText::new(format!("{}  Meine Notizen", ph::CARET_DOWN)).strong());
+        ui.label(RichText::new(format!("{}  My Notes", ph::CARET_DOWN)).strong());
         let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), Sense::hover());
         ui.painter().rect_filled(r, 0, t.selected);
         ui.painter().text(
             r.left_center() + egui::vec2(26.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            format!("Notizen ({})", self.notes.notes.len()),
+            format!("Notes ({})", self.notes.notes.len()),
             egui::FontId::proportional(13.0),
             t.text,
         );
@@ -229,14 +229,14 @@ impl App {
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Notizen").size(17.0));
+                    ui.label(RichText::new("Notes").size(17.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.allocate_ui(egui::vec2(320.0, 26.0), |ui| {
                             super::search_box(
                                 ui,
                                 &t,
                                 &mut self.search,
-                                "Notizen durchsuchen (Strg+E)",
+                                "Search Notes (Ctrl+E)",
                             );
                         });
                     });
@@ -363,7 +363,7 @@ impl App {
                     ui.add_space(20.0);
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            RichText::new("In dieser Ansicht gibt es keine Elemente.")
+                            RichText::new("There are no items to show in this view.")
                                 .color(t.text_weak),
                         )
                     });
@@ -397,7 +397,7 @@ impl App {
             .lines()
             .next()
             .filter(|l| !l.trim().is_empty())
-            .unwrap_or("Notiz")
+            .unwrap_or("Note")
             .to_string();
         let color = note_color(&ed.note.color);
         let mut delete = false;
@@ -431,13 +431,13 @@ impl App {
                                 }
                             }
                             ui.separator();
-                            if chrome::menu_item(ui, ph::X, IC_RED, "Löschen") {
+                            if chrome::menu_item(ui, ph::X, IC_RED, "Delete") {
                                 delete = true;
                             }
                         });
                         ui.label(
                             RichText::new(
-                                chrono::Local::now().format("%d.%m.%Y %H:%M").to_string(),
+                                chrono::Local::now().format("%d/%m/%Y %H:%M").to_string(),
                             )
                             .size(11.0)
                             .color(Color32::from_gray(90)),
@@ -483,16 +483,16 @@ impl App {
         }
         let t = self.t;
         let sel = self.notes.selected_entry;
-        chrome::group(ui, &t, "Neu", |ui| {
-            if chrome::large(ui, &t, ph::BOOK_OPEN, IC_BLUE, "Journal-\neintrag", true).clicked() {
-                self.new_journal_entry("Telefonanruf");
+        chrome::group(ui, &t, "New", |ui| {
+            if chrome::large(ui, &t, ph::BOOK_OPEN, IC_BLUE, "Journal\nEntry", true).clicked() {
+                self.new_journal_entry("Phone call");
             }
             let r = chrome::large(
                 ui,
                 &t,
                 ph::FILE_PLUS,
                 IC_YELLOW,
-                "Neue\nElemente \u{E136}",
+                "New\nItems \u{E136}",
                 true,
             );
             chrome::menu(&r, |ui| {
@@ -503,8 +503,8 @@ impl App {
                 }
             });
         });
-        chrome::group(ui, &t, "Löschen", |ui| {
-            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", sel.is_some()).clicked() {
+        chrome::group(ui, &t, "Delete", |ui| {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Delete", sel.is_some()).clicked() {
                 let _ = db::delete_journal(&self.st.db(), sel.unwrap());
                 self.notes.selected_entry = None;
                 self.reload_notes();
@@ -514,7 +514,7 @@ impl App {
 
     pub fn journal_nav(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        ui.label(RichText::new(format!("{}  Meine Journale", ph::CARET_DOWN)).strong());
+        ui.label(RichText::new(format!("{}  My Journals", ph::CARET_DOWN)).strong());
         let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), Sense::hover());
         ui.painter().rect_filled(r, 0, t.selected);
         ui.painter().text(
@@ -526,7 +526,7 @@ impl App {
         );
     }
 
-    /// Journal as a list grouped by entry type, like Outlook's "Eintragsliste".
+    /// Journal as a list grouped by entry type, like Outlook's "Entry List".
     pub fn journal_ui(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
         let needle = self.search.trim().to_lowercase();
@@ -553,7 +553,7 @@ impl App {
                                 ui,
                                 &t,
                                 &mut self.search,
-                                "Journal durchsuchen (Strg+E)",
+                                "Search Journal (Ctrl+E)",
                             );
                         });
                     });
@@ -561,11 +561,11 @@ impl App {
             });
         let w = ui.available_width() - 12.0;
         let cols: [(&str, f32); 5] = [
-            ("Eintragstyp", 160.0),
-            ("Betreff", w - 160.0 - 170.0 - 90.0 - 160.0),
-            ("Beginn", 170.0),
-            ("Dauer", 90.0),
-            ("Firma", 160.0),
+            ("Entry type", 160.0),
+            ("Subject", w - 160.0 - 170.0 - 90.0 - 160.0),
+            ("Start", 170.0),
+            ("Duration", 90.0),
+            ("Company", 160.0),
         ];
         let (head, _) = ui.allocate_exact_size(egui::vec2(w + 12.0, 24.0), Sense::hover());
         ui.painter().rect_filled(head, 0, t.ribbon);
@@ -597,7 +597,7 @@ impl App {
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(format!(
-                            "  {}  Eintragstyp: {kind} ({})",
+                            "  {}  Entry type: {kind} ({})",
                             ph::CARET_DOWN,
                             group.len()
                         ))
@@ -617,7 +617,7 @@ impl App {
                             format!("{}  {}", kind_icon(kind), e.kind),
                             e.subject.clone(),
                             super::long_date(&e.start),
-                            format!("{} Min.", e.minutes),
+                            format!("{} min", e.minutes),
                             e.company.clone(),
                         ];
                         for ((_, cw), v) in cols.iter().zip(values) {
@@ -647,7 +647,7 @@ impl App {
                     ui.add_space(20.0);
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            RichText::new("In dieser Ansicht gibt es keine Elemente.")
+                            RichText::new("There are no items to show in this view.")
                                 .color(t.text_weak),
                         )
                     });
@@ -666,9 +666,9 @@ impl App {
     ) -> bool {
         let t = self.t;
         let title = format!(
-            "{} - Journaleintrag",
+            "{} - Journal Entry",
             if ed.e.subject.trim().is_empty() {
-                "Unbenannt"
+                "Untitled"
             } else {
                 ed.e.subject.trim()
             }
@@ -680,32 +680,32 @@ impl App {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
         let closed = chrome::native_window(ctx, vid, &title, [760.0, 560.0], &t, |ui| {
-            chrome::item_ribbon(ui, &t, "Journaleintrag", |ui| {
-                chrome::group(ui, &t, "Aktionen", |ui| {
+            chrome::item_ribbon(ui, &t, "Journal Entry", |ui| {
+                chrome::group(ui, &t, "Actions", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::FLOPPY_DISK,
                         IC_PURPLE,
-                        "Speichern &\nschließen",
+                        "Save &\nClose",
                         true,
                     )
                     .clicked()
                     {
                         save = true;
                     }
-                    if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", !is_new).clicked() {
+                    if chrome::large(ui, &t, ph::X, IC_RED, "Delete", !is_new).clicked() {
                         delete = true;
                     }
                 });
-                chrome::group(ui, &t, "Zeitgeber", |ui| {
+                chrome::group(ui, &t, "Timer", |ui| {
                     let running = ed.timer.is_some();
-                    if chrome::large(ui, &t, ph::TIMER, IC_GREEN, "Zeitgeber\nstarten", !running)
+                    if chrome::large(ui, &t, ph::TIMER, IC_GREEN, "Start\nTimer", !running)
                         .clicked()
                     {
                         ed.timer = Some((Instant::now(), ed.e.minutes));
                     }
-                    if chrome::large(ui, &t, ph::STOP, IC_RED, "Zeitgeber\nanhalten", running)
+                    if chrome::large(ui, &t, ph::STOP, IC_RED, "Pause\nTimer", running)
                         .clicked()
                     {
                         ed.timer = None;
@@ -722,12 +722,12 @@ impl App {
                         .num_columns(2)
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
-                            ui.label("Betreff");
+                            ui.label("Subject");
                             ui.add(
                                 egui::TextEdit::singleline(&mut ed.e.subject).desired_width(480.0),
                             );
                             ui.end_row();
-                            ui.label("Eintragstyp");
+                            ui.label("Entry type");
                             egui::ComboBox::from_id_salt("jkind")
                                 .selected_text(ed.e.kind.clone())
                                 .show_ui(ui, |ui| {
@@ -736,17 +736,17 @@ impl App {
                                     }
                                 });
                             ui.end_row();
-                            ui.label("Firma");
+                            ui.label("Company");
                             ui.add(
                                 egui::TextEdit::singleline(&mut ed.e.company).desired_width(480.0),
                             );
                             ui.end_row();
-                            ui.label("Beginn");
+                            ui.label("Start time");
                             ui.horizontal(|ui| {
                                 ui.add(
                                     egui_extras::DatePickerButton::new(&mut ed.date)
                                         .id_salt("jdate")
-                                        .format("%d.%m.%Y"),
+                                        .format("%d/%m/%Y"),
                                 );
                                 let mut text = ed.time.format("%H:%M").to_string();
                                 if ui
@@ -759,7 +759,7 @@ impl App {
                                 }
                             });
                             ui.end_row();
-                            ui.label("Dauer (Minuten)");
+                            ui.label("Duration (minutes)");
                             ui.horizontal(|ui| {
                                 ui.add_enabled(
                                     ed.timer.is_none(),
@@ -767,7 +767,7 @@ impl App {
                                 );
                                 if ed.timer.is_some() {
                                     ui.label(
-                                        RichText::new(format!("{}  Zeitgeber läuft", ph::TIMER))
+                                        RichText::new(format!("{}  Timer running", ph::TIMER))
                                             .color(IC_GREEN),
                                     );
                                 }
@@ -785,14 +785,14 @@ impl App {
         });
         if save {
             if ed.e.subject.trim().is_empty() {
-                self.toast("Bitte einen Betreff eingeben.", true);
+                self.toast("Please enter a subject.", true);
                 return false;
             }
             ed.e.start = super::local_to_utc_string(ed.date.and_time(ed.time));
             let res = db::save_journal(&self.st.db(), &ed.e);
             match res {
                 Ok(_) => {
-                    self.toast("Journaleintrag gespeichert.", false);
+                    self.toast("Journal entry saved.", false);
                     self.reload_notes();
                 }
                 Err(e) => self.toast(format!("{e:#}"), true),

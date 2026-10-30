@@ -1,4 +1,5 @@
-//! Colours of the classic Office "Bunt" (colourful) and "Schwarz" designs.
+//! Colours of the classic Office "Colorful" and "Black" themes.
+//! (The enum variants and settings keys keep their original names `Bunt`/`Schwarz`.)
 
 use eframe::egui::{self, Color32};
 

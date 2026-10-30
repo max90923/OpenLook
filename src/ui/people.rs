@@ -1,5 +1,5 @@
 //! People module: contact list with card, business-card and list views,
-//! and the contact window ("Kontakt").
+//! and the contact window ("Contact").
 
 use eframe::egui::{self, RichText, Sense};
 use egui_phosphor::regular as ph;
@@ -74,23 +74,23 @@ impl App {
             .selected
             .and_then(|id| self.data.contacts.iter().find(|c| c.id == id))
             .cloned();
-        chrome::group(ui, &t, "Neu", |ui| {
-            if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Neuer\nKontakt", true).clicked() {
+        chrome::group(ui, &t, "New", |ui| {
+            if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "New\nContact", true).clicked() {
                 self.new_contact();
             }
-            if chrome::large(ui, &t, ph::USERS_FOUR, IC_BLUE, "Neue\nKontaktgruppe", true).clicked()
+            if chrome::large(ui, &t, ph::USERS_FOUR, IC_BLUE, "New Contact\nGroup", true).clicked()
             {
                 self.new_contact_group();
             }
         });
         let group = self.people.selected_group;
-        chrome::group(ui, &t, "Löschen", |ui| {
+        chrome::group(ui, &t, "Delete", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::X,
                 IC_RED,
-                "Löschen",
+                "Delete",
                 sel.is_some() || group.is_some(),
             )
             .clicked()
@@ -101,19 +101,19 @@ impl App {
                 }
                 let id = sel.as_ref().unwrap().id;
                 self.people.selected = None;
-                self.spawn(Some("Kontakt gelöscht."), move |st, _| async move {
+                self.spawn(Some("Contact deleted."), move |st, _| async move {
                     providers::delete_contact(&st, id).await
                 });
             }
         });
-        chrome::group(ui, &t, "Kommunizieren", |ui| {
+        chrome::group(ui, &t, "Communicate", |ui| {
             let has_mail = sel.as_ref().is_some_and(|c| !c.email.is_empty());
             if chrome::large(
                 ui,
                 &t,
                 ph::ENVELOPE_SIMPLE,
                 IC_BLUE,
-                "E-Mail",
+                "Email",
                 has_mail || group.is_some(),
             )
             .clicked()
@@ -126,18 +126,18 @@ impl App {
                 self.switch_module(Module::Mail);
                 self.open_composer(ComposeKind::To(format!("{} <{}>", c.display_name, c.email)));
             }
-            if chrome::large(ui, &t, ph::CALENDAR_PLUS, IC_BLUE, "Besprechung", has_mail).clicked()
+            if chrome::large(ui, &t, ph::CALENDAR_PLUS, IC_BLUE, "Meeting", has_mail).clicked()
             {
                 let c = sel.as_ref().unwrap().clone();
                 self.new_event_now();
                 self.set_last_event_attendee(&c.email);
             }
         });
-        chrome::group(ui, &t, "Aktuelle Ansicht", |ui| {
+        chrome::group(ui, &t, "Current View", |ui| {
             for (m, icon, label) in [
-                (PeopleMode::People, ph::USER_CIRCLE, "Personen"),
-                (PeopleMode::Cards, ph::IDENTIFICATION_CARD, "Visitenkarte"),
-                (PeopleMode::List, ph::LIST, "Liste"),
+                (PeopleMode::People, ph::USER_CIRCLE, "People"),
+                (PeopleMode::Cards, ph::IDENTIFICATION_CARD, "Business Card"),
+                (PeopleMode::List, ph::LIST, "List"),
             ] {
                 let r = chrome::large(
                     ui,
@@ -164,16 +164,16 @@ impl App {
                 }
             }
         });
-        chrome::group(ui, &t, "Kategorien", |ui| {
+        chrome::group(ui, &t, "Tags", |ui| {
             if chrome::large(
                 ui,
                 &t,
                 ph::STAR,
                 IC_PURPLE,
                 if sel.as_ref().is_some_and(|c| c.favorite) {
-                    "Aus Favoriten\nentfernen"
+                    "Remove from\nFavorites"
                 } else {
-                    "Zu Favoriten\nhinzufügen"
+                    "Add to\nFavorites"
                 },
                 sel.is_some(),
             )
@@ -199,8 +199,8 @@ impl App {
 
     pub fn people_nav(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
-        ui.label(RichText::new(format!("{}  Meine Kontakte", ph::CARET_DOWN)).strong());
-        for (fav, label) in [(false, "Kontakte"), (true, "Favoriten")] {
+        ui.label(RichText::new(format!("{}  My Contacts", ph::CARET_DOWN)).strong());
+        for (fav, label) in [(false, "Contacts"), (true, "Favorites")] {
             let active = self.people.favorites_only == fav;
             let w = ui.available_width();
             let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());
@@ -229,7 +229,7 @@ impl App {
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
                 ui.allocate_ui(egui::vec2(ui.available_width().min(420.0), 26.0), |ui| {
-                    super::search_box(ui, &t, &mut self.search, "Kontakte durchsuchen (Strg+E)");
+                    super::search_box(ui, &t, &mut self.search, "Search Contacts (Ctrl+E)");
                 });
             });
         match self.people.mode {
@@ -324,7 +324,7 @@ impl App {
                             ui.add_space(24.0);
                             ui.vertical_centered(|ui| {
                                 ui.label(
-                                    RichText::new("Es wurden keine Kontakte gefunden.")
+                                    RichText::new("We didn't find any contacts.")
                                         .color(t.text_weak),
                                 )
                             });
@@ -349,7 +349,7 @@ impl App {
                     .cloned()
                 else {
                     ui.centered_and_justified(|ui| {
-                        ui.label(RichText::new("Wählen Sie einen Kontakt aus.").color(t.text_weak))
+                        ui.label(RichText::new("Select a contact.").color(t.text_weak))
                     });
                     return;
                 };
@@ -373,7 +373,7 @@ impl App {
                                 && ui
                                     .add(egui::Button::new((
                                         RichText::new(ph::ENVELOPE_SIMPLE).color(IC_BLUE),
-                                        "E-Mail senden",
+                                        "Send Email",
                                     )))
                                     .clicked()
                             {
@@ -386,7 +386,7 @@ impl App {
                             if ui
                                 .add(egui::Button::new((
                                     RichText::new(ph::PENCIL_SIMPLE).color(IC_BLUE),
-                                    "Bearbeiten",
+                                    "Edit",
                                 )))
                                 .clicked()
                             {
@@ -397,7 +397,7 @@ impl App {
                 });
                 ui.add_space(20.0);
                 ui.label(
-                    RichText::new("Kontaktinformationen")
+                    RichText::new("Contact Information")
                         .size(15.0)
                         .color(t.accent),
                 );
@@ -407,12 +407,12 @@ impl App {
                     .spacing([28.0, 10.0])
                     .show(ui, |ui| {
                         for (k, v) in [
-                            ("E-Mail", &c.email),
-                            ("Mobiltelefon", &c.phone),
-                            ("Firma", &c.company),
-                            ("Position", &c.job_title),
-                            ("Adresse (geschäftlich)", &c.address),
-                            ("Notizen", &c.notes),
+                            ("Email", &c.email),
+                            ("Mobile", &c.phone),
+                            ("Company", &c.company),
+                            ("Job title", &c.job_title),
+                            ("Business Address", &c.address),
+                            ("Notes", &c.notes),
                         ] {
                             if !v.is_empty() {
                                 ui.label(RichText::new(k).color(t.text_weak));
@@ -428,14 +428,14 @@ impl App {
                     .unwrap_or_default();
                 ui.add_space(14.0);
                 ui.label(
-                    RichText::new(format!("Gespeichert in: Kontakte – {acc}"))
+                    RichText::new(format!("Saved in: Contacts – {acc}"))
                         .size(12.0)
                         .color(t.text_weak),
                 );
             });
     }
 
-    /// Outlook "Visitenkarte" view.
+    /// Outlook "Business Card" view.
     fn people_cards(&mut self, ui: &mut egui::Ui, list: &[Contact]) {
         let t = self.t;
         egui::ScrollArea::vertical()
@@ -503,15 +503,15 @@ impl App {
             });
     }
 
-    /// Outlook "Liste" view.
+    /// Outlook "List" view.
     fn people_table(&mut self, ui: &mut egui::Ui, list: &[Contact]) {
         let t = self.t;
         let cols = [
-            ("Vollständiger Name", 0.24),
-            ("Firma", 0.2),
-            ("E-Mail", 0.26),
-            ("Mobiltelefon", 0.15),
-            ("Position", 0.15),
+            ("Full Name", 0.24),
+            ("Company", 0.2),
+            ("Email", 0.26),
+            ("Mobile", 0.15),
+            ("Job title", 0.15),
         ];
         let w = ui.available_width() - 16.0;
         let (head, _) = ui.allocate_exact_size(egui::vec2(w + 16.0, 24.0), Sense::hover());
@@ -591,9 +591,9 @@ impl App {
         let t = self.t;
         let c = &mut ed.c;
         let title = format!(
-            "{} - Kontakt",
+            "{} - Contact",
             if c.display_name.trim().is_empty() {
-                "Unbenannt"
+                "Untitled"
             } else {
                 c.display_name.trim()
             }
@@ -604,31 +604,31 @@ impl App {
         let mut delete = false;
         let mut mail = false;
         let closed = chrome::native_window(ctx, vid, &title, [840.0, 600.0], &t, |ui| {
-            chrome::item_ribbon(ui, &t, "Kontakt", |ui| {
-                chrome::group(ui, &t, "Aktionen", |ui| {
+            chrome::item_ribbon(ui, &t, "Contact", |ui| {
+                chrome::group(ui, &t, "Actions", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::FLOPPY_DISK,
                         IC_PURPLE,
-                        "Speichern &\nschließen",
+                        "Save &\nClose",
                         true,
                     )
                     .clicked()
                     {
                         save = true;
                     }
-                    if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", !is_new).clicked() {
+                    if chrome::large(ui, &t, ph::X, IC_RED, "Delete", !is_new).clicked() {
                         delete = true;
                     }
                 });
-                chrome::group(ui, &t, "Kommunizieren", |ui| {
+                chrome::group(ui, &t, "Communicate", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::ENVELOPE_SIMPLE,
                         IC_BLUE,
-                        "E-Mail",
+                        "Email",
                         !c.email.is_empty(),
                     )
                     .clicked()
@@ -636,16 +636,16 @@ impl App {
                         mail = true;
                     }
                 });
-                chrome::group(ui, &t, "Kategorien", |ui| {
+                chrome::group(ui, &t, "Tags", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::STAR,
                         IC_PURPLE,
                         if c.favorite {
-                            "Favorit  \u{E182}"
+                            "Favorite  \u{E182}"
                         } else {
-                            "Favorit"
+                            "Favorite"
                         },
                         true,
                     )
@@ -666,12 +666,12 @@ impl App {
                                 .spacing([10.0, 7.0])
                                 .show(ui, |ui| {
                                     for (label, field) in [
-                                        ("Vollständiger Name…", &mut c.display_name),
-                                        ("Firma", &mut c.company),
-                                        ("Position", &mut c.job_title),
-                                        ("E-Mail…", &mut c.email),
-                                        ("Mobiltelefon…", &mut c.phone),
-                                        ("Geschäftlich…", &mut c.address),
+                                        ("Full Name…", &mut c.display_name),
+                                        ("Company", &mut c.company),
+                                        ("Job title", &mut c.job_title),
+                                        ("E-mail…", &mut c.email),
+                                        ("Mobile…", &mut c.phone),
+                                        ("Business…", &mut c.address),
                                     ] {
                                         ui.label(label);
                                         ui.add(
@@ -680,7 +680,7 @@ impl App {
                                         ui.end_row();
                                     }
                                     if is_new {
-                                        ui.label("Speichern in");
+                                        ui.label("Save in");
                                         egui::ComboBox::from_id_salt("c_acc")
                                             .width(310.0)
                                             .selected_text(
@@ -746,7 +746,7 @@ impl App {
                         }
                     });
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Notizen").color(t.text_weak));
+                    ui.label(RichText::new("Notes").color(t.text_weak));
                     let (w, h) = (ui.available_width(), ui.available_height().max(80.0));
                     ui.add_sized([w, h - 4.0], egui::TextEdit::multiline(&mut c.notes));
                 });
@@ -760,18 +760,18 @@ impl App {
                 c.display_name = c.email.clone();
             }
             if c.display_name.trim().is_empty() {
-                self.toast("Bitte einen Namen oder eine E-Mail-Adresse eingeben.", true);
+                self.toast("Please enter a name or an email address.", true);
                 return false;
             }
             let c = c.clone();
-            self.spawn(Some("Kontakt gespeichert."), move |st, _| async move {
+            self.spawn(Some("Contact saved."), move |st, _| async move {
                 providers::save_contact(&st, c).await.map(|_| ())
             });
             return true;
         }
         if delete {
             let id = c.id;
-            self.spawn(Some("Kontakt gelöscht."), move |st, _| async move {
+            self.spawn(Some("Contact deleted."), move |st, _| async move {
                 providers::delete_contact(&st, id).await
             });
             return true;

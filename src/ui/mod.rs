@@ -39,38 +39,38 @@ use crate::{db, models::*, providers, state::AppState};
 use chrome::{IC_BLUE, IC_GREEN, IC_PURPLE, IC_YELLOW};
 use theme::{Design, Theme};
 
-pub const WEEKDAYS: [&str; 7] = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+pub const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 pub const WEEKDAYS_LONG: [&str; 7] = [
-    "Montag",
-    "Dienstag",
-    "Mittwoch",
-    "Donnerstag",
-    "Freitag",
-    "Samstag",
-    "Sonntag",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
 ];
 pub const MONTHS: [&str; 12] = [
-    "Januar",
-    "Februar",
-    "März",
+    "January",
+    "February",
+    "March",
     "April",
-    "Mai",
-    "Juni",
-    "Juli",
+    "May",
+    "June",
+    "July",
     "August",
     "September",
-    "Oktober",
+    "October",
     "November",
-    "Dezember",
+    "December",
 ];
 /// Outlook's default colour categories.
 pub const CATEGORIES: [(&str, Color32); 6] = [
-    ("Rote Kategorie", Color32::from_rgb(232, 17, 35)),
-    ("Orange Kategorie", Color32::from_rgb(247, 99, 12)),
-    ("Gelbe Kategorie", Color32::from_rgb(255, 185, 0)),
-    ("Grüne Kategorie", Color32::from_rgb(16, 124, 16)),
-    ("Blaue Kategorie", Color32::from_rgb(0, 120, 212)),
-    ("Lila Kategorie", Color32::from_rgb(136, 23, 152)),
+    ("Red Category", Color32::from_rgb(232, 17, 35)),
+    ("Orange Category", Color32::from_rgb(247, 99, 12)),
+    ("Yellow Category", Color32::from_rgb(255, 185, 0)),
+    ("Green Category", Color32::from_rgb(16, 124, 16)),
+    ("Blue Category", Color32::from_rgb(0, 120, 212)),
+    ("Purple Category", Color32::from_rgb(136, 23, 152)),
 ];
 
 pub fn category_color(name: &str) -> Color32 {
@@ -97,7 +97,7 @@ pub enum Done {
     },
     /// Current automatic-reply settings of an account were loaded.
     AutoReply(i64, providers::graph::AutoReply),
-    /// Free/busy times for the Terminplanungs-Assistent with this key.
+    /// Free/busy times for the Scheduling Assistant with this key.
     FreeBusy(String, Result<Vec<providers::FreeBusy>, String>),
 }
 
@@ -216,7 +216,7 @@ pub struct WinEntry {
     pub win: Win,
 }
 
-/// Commands reachable from "Was möchten Sie tun?".
+/// Commands reachable from "Tell me what you want to do".
 #[derive(Clone, Copy)]
 enum Cmd {
     NewMail,
@@ -231,17 +231,17 @@ enum Cmd {
 }
 
 const COMMANDS: [(&str, Cmd); 11] = [
-    ("Neue E-Mail", Cmd::NewMail),
-    ("Neuer Termin", Cmd::NewEvent),
-    ("Neuer Kontakt", Cmd::NewContact),
-    ("Neue Aufgabe", Cmd::NewTask),
-    ("Senden/Empfangen – alle Ordner", Cmd::SyncAll),
-    ("Optionen", Cmd::Options),
-    ("Konto hinzufügen", Cmd::AddAccount),
-    ("E-Mail", Cmd::Go(Module::Mail)),
-    ("Kalender", Cmd::Go(Module::Calendar)),
-    ("Personen", Cmd::Go(Module::People)),
-    ("Design wechseln", Cmd::Design),
+    ("New Email", Cmd::NewMail),
+    ("New Appointment", Cmd::NewEvent),
+    ("New Contact", Cmd::NewContact),
+    ("New Task", Cmd::NewTask),
+    ("Send/Receive All Folders", Cmd::SyncAll),
+    ("Options", Cmd::Options),
+    ("Add Account", Cmd::AddAccount),
+    ("Mail", Cmd::Go(Module::Mail)),
+    ("Calendar", Cmd::Go(Module::Calendar)),
+    ("People", Cmd::Go(Module::People)),
+    ("Change Office Theme", Cmd::Design),
 ];
 
 pub struct App {
@@ -274,7 +274,7 @@ pub struct App {
     windows: Vec<WinEntry>,
     next_window: u64,
     device_code: Option<(String, String)>,
-    /// "Freigegebenes Postfach hinzufügen": (owner account, address).
+    /// "Add Shared Mailbox": (owner account, address).
     shared_dialog: Option<(i64, String)>,
 }
 
@@ -307,7 +307,7 @@ impl App {
             tell_me: String::new(),
             search: String::new(),
             status: (
-                "Alle Ordner sind auf dem neuesten Stand.".into(),
+                "All folders are up to date.".into(),
                 false,
                 Instant::now(),
             ),
@@ -353,7 +353,7 @@ impl App {
         });
     }
 
-    /// Background "Senden/Empfangen" every `OPENLOOK_SYNC_MINUTES` (default 5).
+    /// Background "Send / Receive" every `OPENLOOK_SYNC_MINUTES` (default 5).
     fn start_background_sync(&mut self) {
         let minutes: u64 = std::env::var("OPENLOOK_SYNC_MINUTES")
             .ok()
@@ -369,7 +369,7 @@ impl App {
                 ctx.request_repaint();
             }
         });
-        // Postausgang: mail with delayed delivery is sent when it is due.
+        // Outbox: mail with delayed delivery is sent when it is due.
         let (st, tx, ctx) = (self.st.clone(), self.tx.clone(), self.ctx.clone());
         self.rt.spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(30));
@@ -379,11 +379,11 @@ impl App {
                     Ok(0) => continue,
                     Ok(n) => {
                         let _ = tx.send(Done::Ok(Some(format!(
-                            "{n} verzögerte Nachricht(en) gesendet."
+                            "{n} delayed message(s) sent."
                         ))));
                     }
                     Err(e) => {
-                        let _ = tx.send(Done::Err(format!("Postausgang: {e:#}")));
+                        let _ = tx.send(Done::Err(format!("Outbox: {e:#}")));
                     }
                 }
                 ctx.request_repaint();
@@ -441,7 +441,7 @@ impl App {
                 Done::Sent(id) => {
                     self.busy = self.busy.saturating_sub(1);
                     self.windows.retain(|w| w.id != id);
-                    self.toast("Nachricht gesendet.", false);
+                    self.toast("Message sent.", false);
                     self.dirty = true;
                 }
                 Done::SendFailed(id, e) => {
@@ -451,7 +451,7 @@ impl App {
                             c.sending = false;
                         }
                     }
-                    self.toast(format!("Senden fehlgeschlagen: {e}"), true);
+                    self.toast(format!("Sending failed: {e}"), true);
                 }
                 Done::DeviceCode { user_code, uri } => {
                     self.device_code = (!user_code.is_empty()).then_some((user_code, uri));
@@ -485,7 +485,7 @@ impl App {
         })();
         drop(c);
         if let Err(e) = res {
-            self.toast(format!("Datenbankfehler: {e:#}"), true);
+            self.toast(format!("Database error: {e:#}"), true);
         }
         self.reload_messages();
         self.reload_events();
@@ -501,9 +501,9 @@ impl App {
     }
 
     pub fn sync_all(&mut self) {
-        self.toast("Senden/Empfangen wird ausgeführt …", false);
+        self.toast("Send/Receive in progress…", false);
         self.spawn(
-            Some("Alle Ordner sind auf dem neuesten Stand."),
+            Some("All folders are up to date."),
             |st, _| async move {
                 providers::sync_all(&st).await;
                 Ok(())
@@ -569,13 +569,13 @@ impl App {
                             .map(|a| a.email.as_str())
                             .unwrap_or_default()
                     ),
-                    None => "E-Mail".into(),
+                    None => "Mail".into(),
                 }
             }
-            Module::Calendar => "Kalender".into(),
-            Module::People => "Kontakte".into(),
-            Module::Tasks => "Aufgaben".into(),
-            Module::Notes => "Notizen".into(),
+            Module::Calendar => "Calendar".into(),
+            Module::People => "Contacts".into(),
+            Module::Tasks => "Tasks".into(),
+            Module::Notes => "Notes".into(),
             Module::Journal => "Journal".into(),
         };
         format!("{place} - OpenLook")
@@ -600,13 +600,13 @@ impl App {
                         ui,
                         &t,
                         ph::ARROWS_CLOCKWISE,
-                        "Senden/Empfangen – alle Ordner (F9)",
+                        "Send/Receive All Folders (F9)",
                     );
                     undo_ribbon = chrome::qat_button(
                         ui,
                         &t,
                         ph::CARET_LINE_DOWN,
-                        "Menüband anzeigen/ausblenden (Strg+F1)",
+                        "Show/Hide Ribbon (Ctrl+F1)",
                     );
                 }) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -620,11 +620,11 @@ impl App {
                 if self.backstage.is_some() {
                     return;
                 }
-                // While searching mail, Outlook shows the contextual "Suchen" tab.
+                // While searching mail, Outlook shows the contextual "Search" tab.
                 let searching = self.module == Module::Mail && !self.search.trim().is_empty();
-                let mut tabs = vec!["Start", "Senden/Empfangen", "Ordner", "Ansicht", "Hilfe"];
+                let mut tabs = vec!["Home", "Send / Receive", "Folder", "View", "Help"];
                 if searching {
-                    tabs.push("Suchen");
+                    tabs.push("Search");
                     if !self.search_tab_shown {
                         self.ribbon_tab = 5;
                         self.search_tab_shown = true;
@@ -644,7 +644,7 @@ impl App {
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut tell)
                             .hint_text(
-                                RichText::new(format!("{}  Was möchten Sie tun?", ph::LIGHTBULB))
+                                RichText::new(format!("{}  Tell me what you want to do", ph::LIGHTBULB))
                                     .color(t.band_text),
                             )
                             .desired_width(220.0)
@@ -693,18 +693,18 @@ impl App {
             });
     }
 
-    /// Shared ribbon tabs: Senden/Empfangen, Ordner, Ansicht, Hilfe.
+    /// Shared ribbon tabs: Send / Receive, Folder, View, Help.
     pub fn common_ribbon(&mut self, ui: &mut egui::Ui) -> bool {
         let t = self.t;
         match self.ribbon_tab {
             1 => {
-                chrome::group(ui, &t, "Senden und Empfangen", |ui| {
+                chrome::group(ui, &t, "Send & Receive", |ui| {
                     if chrome::large(
                         ui,
                         &t,
                         ph::ARROWS_CLOCKWISE,
                         IC_GREEN,
-                        "Senden/Empfangen\nalle Ordner",
+                        "Send/Receive\nAll Folders",
                         true,
                     )
                     .clicked()
@@ -717,13 +717,13 @@ impl App {
                         &t,
                         ph::FOLDER_SIMPLE,
                         IC_YELLOW,
-                        "Ordner\naktualisieren",
+                        "Update\nFolder",
                         acc.is_some(),
                     )
                     .clicked()
                     {
                         if let Some(id) = acc {
-                            self.spawn(Some("Ordner aktualisiert."), move |st, _| async move {
+                            self.spawn(Some("Folder updated."), move |st, _| async move {
                                 providers::sync(&st, id).await
                             });
                         }
@@ -732,8 +732,8 @@ impl App {
                 true
             }
             2 => {
-                chrome::group(ui, &t, "Konten", |ui| {
-                    if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Konto\nhinzufügen", true)
+                chrome::group(ui, &t, "Accounts", |ui| {
+                    if chrome::large(ui, &t, ph::USER_PLUS, IC_BLUE, "Add\nAccount", true)
                         .clicked()
                     {
                         self.open_add_account();
@@ -743,7 +743,7 @@ impl App {
                         &t,
                         ph::GEAR,
                         chrome::IC_GREY,
-                        "Konto-\neinstellungen",
+                        "Account\nSettings",
                         true,
                     )
                     .clicked()
@@ -754,11 +754,11 @@ impl App {
                 true
             }
             3 => {
-                chrome::group(ui, &t, "Design", |ui| {
+                chrome::group(ui, &t, "Office Theme", |ui| {
                     let label = if self.prefs.design == Design::Bunt {
-                        "Design:\nSchwarz"
+                        "Office Theme:\nBlack"
                     } else {
-                        "Design:\nBunt"
+                        "Office Theme:\nColorful"
                     };
                     if chrome::large(ui, &t, ph::PALETTE, IC_PURPLE, label, true).clicked() {
                         self.run(Cmd::Design);
@@ -770,7 +770,7 @@ impl App {
                         &t,
                         ph::SIDEBAR,
                         IC_BLUE,
-                        "Ordnerbereich\n\u{E136}",
+                        "Folder\nPane \u{E136}",
                         true,
                     );
                     chrome::menu(&r, |ui| {
@@ -778,7 +778,7 @@ impl App {
                             self.folder_pane_min = false;
                             ui.close();
                         }
-                        if ui.radio(self.folder_pane_min, "Minimiert").clicked() {
+                        if ui.radio(self.folder_pane_min, "Minimized").clicked() {
                             self.folder_pane_min = true;
                             ui.close();
                         }
@@ -805,13 +805,13 @@ impl App {
                 false
             }
             4 => {
-                chrome::group(ui, &t, "Hilfe", |ui| {
+                chrome::group(ui, &t, "Help", |ui| {
                     let r = chrome::large(
                         ui,
                         &t,
                         ph::KEYBOARD,
                         chrome::IC_GREY,
-                        "Tasten-\nkombinationen",
+                        "Keyboard\nShortcuts",
                         true,
                     );
                     chrome::menu(&r, |ui| {
@@ -820,17 +820,17 @@ impl App {
                             .spacing([16.0, 4.0])
                             .show(ui, |ui| {
                                 for (k, d) in [
-                                    ("Strg+N", "Neues Element"),
-                                    ("Strg+R / Strg+Umschalt+R", "Antworten / Allen antworten"),
-                                    ("Strg+F", "Weiterleiten"),
-                                    ("Entf", "Löschen"),
-                                    ("Strg+Q / Strg+U", "Als gelesen / ungelesen markieren"),
-                                    ("Einfg", "Zur Nachverfolgung kennzeichnen"),
-                                    ("Strg+E", "Suchen"),
-                                    ("Alt+S", "Senden (im Nachrichtenfenster)"),
-                                    ("Strg+1 … 4", "E-Mail, Kalender, Personen, Aufgaben"),
-                                    ("F9", "Senden/Empfangen – alle Ordner"),
-                                    ("Strg+F1", "Menüband ein-/ausblenden"),
+                                    ("Ctrl+N", "New item"),
+                                    ("Ctrl+R / Ctrl+Shift+R", "Reply / Reply All"),
+                                    ("Ctrl+F", "Forward"),
+                                    ("Del", "Delete"),
+                                    ("Ctrl+Q / Ctrl+U", "Mark as read / unread"),
+                                    ("Insert", "Flag for follow up"),
+                                    ("Ctrl+E", "Search"),
+                                    ("Alt+S", "Send (in the message window)"),
+                                    ("Ctrl+1 … 4", "Mail, Calendar, People, Tasks"),
+                                    ("F9", "Send/Receive All Folders"),
+                                    ("Ctrl+F1", "Show/Hide Ribbon"),
                                 ] {
                                     ui.label(RichText::new(k).strong());
                                     ui.label(d);
@@ -842,7 +842,7 @@ impl App {
                     chrome::menu(&r, |ui| {
                         ui.label(RichText::new("OpenLook").size(18.0).strong());
                         ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                        ui.label("E-Mail, Kalender, Personen und Aufgaben –\nIMAP/SMTP und Microsoft 365.");
+                        ui.label("Mail, Calendar, People and Tasks –\nIMAP/SMTP and Microsoft 365.");
                     });
                 });
                 true
@@ -882,29 +882,29 @@ impl App {
                     match self.module {
                         Module::Mail => {
                             let (n, u) = (self.mail.count(), self.mail.unread());
-                            ui.label(small(format!("Elemente: {n}")));
+                            ui.label(small(format!("Items: {n}")));
                             ui.add_space(14.0);
                             if u > 0 {
-                                ui.label(small(format!("Ungelesen: {u}")));
+                                ui.label(small(format!("Unread: {u}")));
                             }
                         }
                         Module::Calendar => {
-                            ui.label(small(format!("Elemente: {}", self.cal.count())));
+                            ui.label(small(format!("Items: {}", self.cal.count())));
                         }
                         Module::People => {
-                            ui.label(small(format!("Elemente: {}", self.data.contacts.len())));
+                            ui.label(small(format!("Items: {}", self.data.contacts.len())));
                         }
                         Module::Tasks => {
                             let open = self.data.tasks.iter().filter(|t| !t.completed).count();
-                            ui.label(small(format!("Elemente: {}", self.data.tasks.len())));
+                            ui.label(small(format!("Items: {}", self.data.tasks.len())));
                             ui.add_space(14.0);
-                            ui.label(small(format!("Nicht erledigt: {open}")));
+                            ui.label(small(format!("Not completed: {open}")));
                         }
                         Module::Notes => {
-                            ui.label(small(format!("Elemente: {}", self.notes.notes.len())));
+                            ui.label(small(format!("Items: {}", self.notes.notes.len())));
                         }
                         Module::Journal => {
-                            ui.label(small(format!("Elemente: {}", self.notes.journal.len())));
+                            ui.label(small(format!("Items: {}", self.notes.journal.len())));
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -929,21 +929,21 @@ impl App {
                             .any(|a| a.kind != AccountKind::Local);
                         let err = self.data.accounts.iter().find_map(|a| a.last_error.clone());
                         if let Some(e) = err {
-                            ui.label(small(format!("{}  Getrennt", ph::WARNING)))
+                            ui.label(small(format!("{}  Disconnected", ph::WARNING)))
                                 .on_hover_text(e);
                         } else if connected {
-                            ui.label(small(format!("{}  Verbunden", ph::PLUG)));
+                            ui.label(small(format!("{}  Connected", ph::PLUG)));
                         } else {
-                            ui.label(small(format!("{}  Nur lokal", ph::DESKTOP)));
+                            ui.label(small(format!("{}  Local only", ph::DESKTOP)));
                         }
                         ui.add_space(16.0);
                         let (text, error, at) = &self.status;
                         let shown = if self.busy > 0 {
-                            "Senden/Empfangen wird ausgeführt …".to_string()
+                            "Send/Receive in progress…".to_string()
                         } else if at.elapsed() < Duration::from_secs(if *error { 30 } else { 6 }) {
                             text.clone()
                         } else {
-                            "Alle Ordner sind auf dem neuesten Stand.".into()
+                            "All folders are up to date.".into()
                         };
                         if self.busy > 0 {
                             ui.add(egui::Spinner::new().size(12.0).color(t.band_text));
@@ -996,10 +996,10 @@ impl App {
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing.x = 4.0;
                             for (m, icon, label) in [
-                                (Module::Mail, ph::ENVELOPE_SIMPLE, "E-Mail"),
-                                (Module::Calendar, ph::CALENDAR_BLANK, "Kalender"),
-                                (Module::People, ph::USERS, "Personen"),
-                                (Module::Tasks, ph::CHECK_SQUARE_OFFSET, "Aufgaben"),
+                                (Module::Mail, ph::ENVELOPE_SIMPLE, "Mail"),
+                                (Module::Calendar, ph::CALENDAR_BLANK, "Calendar"),
+                                (Module::People, ph::USERS, "People"),
+                                (Module::Tasks, ph::CHECK_SQUARE_OFFSET, "Tasks"),
                             ] {
                                 let active = self.module == m;
                                 let color = if active { t.accent } else { t.text };
@@ -1016,7 +1016,7 @@ impl App {
                                     self.switch_module(m);
                                 }
                             }
-                            // Outlook keeps Notizen and Journal behind "···".
+                            // Outlook keeps Notes and Journal behind "···".
                             let more_active =
                                 matches!(self.module, Module::Notes | Module::Journal);
                             let r = ui.add(
@@ -1028,10 +1028,10 @@ impl App {
                                 .frame(false),
                             );
                             chrome::menu(&r, |ui| {
-                                if chrome::menu_item(ui, ph::NOTE, IC_YELLOW, "Notizen (Strg+5)") {
+                                if chrome::menu_item(ui, ph::NOTE, IC_YELLOW, "Notes (Ctrl+5)") {
                                     self.switch_module(Module::Notes);
                                 }
-                                if chrome::menu_item(ui, ph::BOOK_OPEN, IC_BLUE, "Journal (Strg+8)")
+                                if chrome::menu_item(ui, ph::BOOK_OPEN, IC_BLUE, "Journal (Ctrl+8)")
                                 {
                                     self.switch_module(Module::Journal);
                                 }
@@ -1059,7 +1059,7 @@ impl App {
                                 egui::Button::new(RichText::new(ph::CARET_LEFT).size(14.0))
                                     .frame(false),
                             )
-                            .on_hover_text("Ordnerbereich minimieren")
+                            .on_hover_text("Minimize the Folder Pane")
                             .clicked()
                         {
                             self.folder_pane_min = true;
@@ -1094,7 +1094,7 @@ impl App {
                 Module::People => self.new_contact(),
                 Module::Tasks => self.new_task(),
                 Module::Notes => self.new_note(),
-                Module::Journal => self.new_journal_entry("Telefonanruf"),
+                Module::Journal => self.new_journal_entry("Phone call"),
             }
         }
     }
@@ -1122,7 +1122,7 @@ impl App {
                 closed.push(w.id);
             }
         }
-        // Windows opened while drawing (e.g. "Element öffnen") were pushed to `self.windows`.
+        // Windows opened while drawing (e.g. "Open Item") were pushed to `self.windows`.
         windows.append(&mut self.windows);
         windows.retain(|w| !closed.contains(&w.id));
         self.windows = windows;
@@ -1212,7 +1212,7 @@ pub fn one_line(
     painter.layout_job(job)
 }
 
-/// Search box above lists ("Aktuelles Postfach durchsuchen").
+/// Search box above lists ("Search Current Mailbox").
 pub fn search_box(ui: &mut egui::Ui, t: &Theme, value: &mut String, hint: &str) -> egui::Response {
     let mut resp = None;
     egui::Frame::new()
@@ -1313,7 +1313,7 @@ pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
 
-/// Outlook list date: time for today, "Mi 14:02" this week, else "29.10.2026".
+/// Outlook list date: time for today, "Wed 14:02" this week, else "29/10/2026".
 pub fn short_date(s: &str) -> String {
     let Some(d) = parse_utc(s) else {
         return String::new();
@@ -1328,11 +1328,11 @@ pub fn short_date(s: &str) -> String {
             d.format("%H:%M")
         )
     } else {
-        d.format("%d.%m.%Y").to_string()
+        d.format("%d/%m/%Y").to_string()
     }
 }
 
-/// "Do 29.10.2026 14:02" like Outlook's reading pane.
+/// "Thu 29/10/2026 14:02" like Outlook's reading pane.
 pub fn long_date(s: &str) -> String {
     let Some(d) = parse_utc(s) else {
         return s.to_string();
@@ -1340,13 +1340,13 @@ pub fn long_date(s: &str) -> String {
     format!(
         "{} {}",
         WEEKDAYS[d.weekday().num_days_from_monday() as usize],
-        d.format("%d.%m.%Y %H:%M")
+        d.format("%d/%m/%Y %H:%M")
     )
 }
 
 pub fn date_long(d: NaiveDate) -> String {
     format!(
-        "{}, {}. {} {}",
+        "{}, {} {} {}",
         WEEKDAYS_LONG[d.weekday().num_days_from_monday() as usize],
         d.day(),
         MONTHS[d.month0() as usize],
@@ -1365,7 +1365,7 @@ pub fn open_external(target: &str) {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let r = std::process::Command::new("xdg-open").arg(target).spawn();
     if let Err(e) = r {
-        tracing::warn!("Konnte {target} nicht öffnen: {e}");
+        tracing::warn!("Could not open {target}: {e}");
     }
 }
 
@@ -1393,7 +1393,7 @@ mod tests {
 
     #[test]
     fn category_colors_accept_short_names() {
-        assert_eq!(category_color("Rote Kategorie"), CATEGORIES[0].1);
-        assert_eq!(category_color("Grün"), CATEGORIES[3].1);
+        assert_eq!(category_color("Red Category"), CATEGORIES[0].1);
+        assert_eq!(category_color("Green"), CATEGORIES[3].1);
     }
 }

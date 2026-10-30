@@ -1,5 +1,5 @@
-//! "Datei" backstage (Kontoinformationen), the options dialog and the
-//! "Konto hinzufügen" wizard.
+//! "File" backstage (Account Information), the options dialog and the
+//! "Add Account" wizard.
 
 use std::time::Instant;
 
@@ -67,7 +67,7 @@ impl App {
                         egui::FontId::proportional(18.0),
                         t.band_text,
                     );
-                    if resp.on_hover_text("Zurück").clicked() {
+                    if resp.on_hover_text("Back").clicked() {
                         self.backstage = None;
                     }
                 });
@@ -92,25 +92,25 @@ impl App {
                     );
                     resp.clicked()
                 };
-                if item(ui, "Informationen", page == Page::Info) {
+                if item(ui, "Info", page == Page::Info) {
                     self.backstage = Some(Page::Info);
                 }
-                if item(ui, "Drucken", false) {
+                if item(ui, "Print", false) {
                     match self.mail.selected_id() {
                         Some(id) if self.module == super::Module::Mail => {
                             self.backstage = None;
                             self.print_message(id);
                         }
-                        _ => self.toast("Wählen Sie zum Drucken eine E-Mail aus.", true),
+                        _ => self.toast("Select an email to print.", true),
                     }
                 }
-                if item(ui, "Optionen", false) {
+                if item(ui, "Options", false) {
                     self.open_options();
                 }
-                if item(ui, "Info zu OpenLook", page == Page::About) {
+                if item(ui, "About OpenLook", page == Page::About) {
                     self.backstage = Some(Page::About);
                 }
-                if item(ui, "Beenden", false) {
+                if item(ui, "Exit", false) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
@@ -118,12 +118,12 @@ impl App {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match page {
                 Page::Info => self.account_info(ui),
                 Page::About => {
-                    ui.label(RichText::new("Info zu OpenLook").size(34.0).color(t.text));
+                    ui.label(RichText::new("About OpenLook").size(34.0).color(t.text));
                     ui.add_space(16.0);
                     ui.label(format!("OpenLook {}", env!("CARGO_PKG_VERSION")));
-                    ui.label("E-Mail, Kalender, Personen und Aufgaben für IMAP/SMTP und Microsoft 365.");
+                    ui.label("Mail, Calendar, People and Tasks for IMAP/SMTP and Microsoft 365.");
                     ui.add_space(8.0);
-                    ui.label(RichText::new(format!("Datenbank: {}", std::env::var("OPENLOOK_DB").unwrap_or_else(|_| "Standard-Datenverzeichnis".into()))).color(t.text_weak));
+                    ui.label(RichText::new(format!("Database: {}", std::env::var("OPENLOOK_DB").unwrap_or_else(|_| "default data directory".into()))).color(t.text_weak));
                 }
             });
         });
@@ -138,23 +138,23 @@ impl App {
         };
         let mut open = true;
         let mut ok = false;
-        egui::Window::new("Freigegebenes Postfach hinzufügen")
+        egui::Window::new("Add Shared Mailbox")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.label("E-Mail-Adresse des Postfachs, für das Sie Berechtigungen haben:");
+                ui.label("Email address of the mailbox you have permissions for:");
                 let r = ui.add(
                     egui::TextEdit::singleline(address)
-                        .hint_text("team@firma.de")
+                        .hint_text("team@company.com")
                         .desired_width(320.0),
                 );
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     ok = true;
                 }
                 ui.add_space(6.0);
-                if ui.button("Hinzufügen").clicked() {
+                if ui.button("Add").clicked() {
                     ok = true;
                 }
             });
@@ -162,7 +162,7 @@ impl App {
             let (owner, address) = (*owner, address.trim().to_string());
             self.shared_dialog = None;
             self.spawn(
-                Some("Freigegebenes Postfach hinzugefügt."),
+                Some("Shared mailbox added."),
                 move |st, _| async move {
                     let id = providers::graph::add_shared_mailbox(&st, owner, &address).await?;
                     providers::sync(&st, id).await
@@ -176,7 +176,7 @@ impl App {
     fn account_info(&mut self, ui: &mut egui::Ui) {
         self.shared_mailbox_dialog(ui.ctx());
         let t = self.t;
-        ui.label(RichText::new("Kontoinformationen").size(34.0).color(t.text));
+        ui.label(RichText::new("Account Information").size(34.0).color(t.text));
         ui.add_space(18.0);
         let accounts = self.data.accounts.clone();
         let sel_id = ui.ctx().data_mut(|d| {
@@ -191,7 +191,7 @@ impl App {
             .or(accounts.first())
             .cloned();
         let kind = |a: &Account| match a.kind {
-            AccountKind::Local => "Lokales Postfach",
+            AccountKind::Local => "Local Mailbox",
             AccountKind::Imap => "IMAP/SMTP",
             AccountKind::Graph => "Microsoft 365",
         };
@@ -222,7 +222,7 @@ impl App {
         ui.add_space(6.0);
         if ui
             .add(
-                egui::Button::new((RichText::new(ph::PLUS).color(IC_BLUE), "Konto hinzufügen"))
+                egui::Button::new((RichText::new(ph::PLUS).color(IC_BLUE), "Add Account"))
                     .frame(false),
             )
             .clicked()
@@ -282,26 +282,26 @@ impl App {
 
         let detail = match acc.kind {
             AccountKind::Local => {
-                "Dieses Postfach wird nur auf diesem Computer gespeichert.".to_string()
+                "This mailbox is stored only on this computer.".to_string()
             }
             _ => format!(
-                "Zuletzt synchronisiert: {}{}",
+                "Last synchronized: {}{}",
                 acc.last_sync
                     .as_deref()
                     .map(super::long_date)
-                    .unwrap_or_else(|| "noch nie".into()),
+                    .unwrap_or_else(|| "never".into()),
                 acc.last_error
                     .as_ref()
-                    .map(|e| format!("\nFehler: {e}"))
+                    .map(|e| format!("\nError: {e}"))
                     .unwrap_or_default()
             ),
         };
         let r = section(
             ui,
             ph::GEAR,
-            "Konto-\neinstellungen \u{E136}",
-            "Kontoeinstellungen",
-            &format!("Ändern Sie die Einstellungen für dieses Konto.\n{detail}"),
+            "Account\nSettings \u{E136}",
+            "Account Settings",
+            &format!("Change settings for this account.\n{detail}"),
         );
         let acc_id = acc.id;
         let is_local = acc.kind == AccountKind::Local;
@@ -310,26 +310,26 @@ impl App {
                 .map(|c| !c.contains("\"shared_of\""))
                 .unwrap_or(false);
         chrome::menu(&r, |ui| {
-            if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Konto hinzufügen…") {
+            if chrome::menu_item(ui, ph::PLUS, IC_BLUE, "Add Account…") {
                 self.open_add_account();
             }
             if is_owner_graph
-                && chrome::menu_item(ui, ph::USERS, IC_BLUE, "Freigegebenes Postfach hinzufügen…")
+                && chrome::menu_item(ui, ph::USERS, IC_BLUE, "Add Shared Mailbox…")
             {
                 self.shared_dialog = Some((acc_id, String::new()));
             }
             if !is_local
-                && chrome::menu_item(ui, ph::ARROWS_CLOCKWISE, IC_BLUE, "Jetzt synchronisieren")
+                && chrome::menu_item(ui, ph::ARROWS_CLOCKWISE, IC_BLUE, "Sync now")
             {
-                self.spawn(Some("Konto synchronisiert."), move |st, _| async move {
+                self.spawn(Some("Account synchronized."), move |st, _| async move {
                     providers::sync(&st, acc_id).await
                 });
             }
-            if !is_local && chrome::menu_item(ui, ph::X, t.danger, "Konto entfernen") {
+            if !is_local && chrome::menu_item(ui, ph::X, t.danger, "Remove Account") {
                 crate::secrets::forget(acc_id);
                 let res = db::delete_account(&self.st.db(), acc_id);
                 match res {
-                    Ok(()) => self.toast("Konto entfernt.", false),
+                    Ok(()) => self.toast("Account removed.", false),
                     Err(e) => self.toast(format!("{e:#}"), true),
                 }
                 self.dirty = true;
@@ -337,14 +337,14 @@ impl App {
         });
 
         let auto_text = match acc.kind {
-            AccountKind::Local => "Für das lokale Postfach nicht verfügbar.",
-            _ => "Benachrichtigen Sie andere, dass Sie nicht im Büro sind, sich im Urlaub befinden oder nicht für E-Mails zur Verfügung stehen.",
+            AccountKind::Local => "Not available for the local mailbox.",
+            _ => "Use automatic replies to notify others that you are out of office, on vacation, or not available to respond to email messages.",
         };
         let r = section(
             ui,
             ph::AIRPLANE_TILT,
-            "Automatische\nAntworten",
-            "Automatische Antworten (Abwesend)",
+            "Automatic\nReplies",
+            "Automatic Replies (Out of Office)",
             auto_text,
         );
         if r.clicked() && acc.kind != AccountKind::Local {
@@ -360,15 +360,15 @@ impl App {
             ui,
             ph::BROOM,
             "Tools \u{E136}",
-            "Postfacheinstellungen",
-            &format!("Verwalten Sie die Größe Ihres Postfachs, indem Sie gelöschte Elemente leeren.\nGelöschte Elemente: {trash_count}"),
+            "Mailbox Settings",
+            &format!("Manage the size of your mailbox by emptying Deleted Items.\nDeleted Items: {trash_count}"),
         );
         chrome::menu(&r, |ui| {
             if chrome::menu_item(
                 ui,
                 ph::TRASH,
                 t.danger,
-                "Ordner \"Gelöschte Elemente\" leeren",
+                "Empty Deleted Items Folder",
             ) {
                 if let Some(folder) = trash {
                     let ids: Vec<i64> = db::list_messages(
@@ -384,7 +384,7 @@ impl App {
                     .map(|m| m.id)
                     .collect();
                     self.spawn(
-                        Some("Gelöschte Elemente wurden geleert."),
+                        Some("Deleted Items folder emptied."),
                         move |st, _| async move {
                             for id in ids {
                                 providers::delete_message(&st, id).await?;
@@ -411,7 +411,7 @@ impl App {
         let closed = chrome::native_window(
             ctx,
             vid,
-            "OpenLook-Optionen",
+            "OpenLook Options",
             [860.0, 600.0],
             &t,
             |ui| {
@@ -420,7 +420,7 @@ impl App {
                     .show_inside(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .add_sized([90.0, 26.0], egui::Button::new("Abbrechen"))
+                                .add_sized([90.0, 26.0], egui::Button::new("Cancel"))
                                 .clicked()
                             {
                                 cancel = true;
@@ -443,7 +443,7 @@ impl App {
                     )
                     .show_inside(ui, |ui| {
                         ui.add_space(6.0);
-                        for (i, c) in ["Allgemein", "E-Mail", "Kalender", "Erweitert"]
+                        for (i, c) in ["General", "Mail", "Calendar", "Advanced"]
                             .into_iter()
                             .enumerate()
                         {
@@ -476,55 +476,55 @@ impl App {
                 };
                 match o.cat {
                     0 => {
-                        heading(ui, "OpenLook personalisieren");
+                        heading(ui, "Personalize your copy of OpenLook");
                         ui.horizontal(|ui| {
-                            ui.label("Design:");
-                            egui::ComboBox::from_id_salt("opt_design").selected_text(if o.design == Design::Bunt { "Bunt" } else { "Schwarz" }).show_ui(ui, |ui| {
-                                ui.selectable_value(&mut o.design, Design::Bunt, "Bunt");
-                                ui.selectable_value(&mut o.design, Design::Schwarz, "Schwarz");
+                            ui.label("Office Theme:");
+                            egui::ComboBox::from_id_salt("opt_design").selected_text(if o.design == Design::Bunt { "Colorful" } else { "Black" }).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut o.design, Design::Bunt, "Colorful");
+                                ui.selectable_value(&mut o.design, Design::Schwarz, "Black");
                             });
                         });
                     }
                     1 => {
-                        heading(ui, "Nachrichten verfassen");
-                        ui.label("Signatur für neue Nachrichten, Antworten und Weiterleitungen:");
+                        heading(ui, "Compose messages");
+                        ui.label("Signature for new messages, replies and forwards:");
                         ui.add(egui::TextEdit::multiline(&mut o.signature).desired_rows(6).desired_width(f32::INFINITY));
-                        heading(ui, "Outlook-Bereiche");
+                        heading(ui, "Outlook panes");
                         ui.horizontal(|ui| {
-                            ui.label("Lesebereich:");
+                            ui.label("Reading Pane:");
                             egui::ComboBox::from_id_salt("opt_rp")
                                 .selected_text(match o.reading_pane {
-                                    ReadingPane::Right => "Rechts",
-                                    ReadingPane::Bottom => "Unten",
-                                    ReadingPane::Off => "Aus",
+                                    ReadingPane::Right => "Right",
+                                    ReadingPane::Bottom => "Bottom",
+                                    ReadingPane::Off => "Off",
                                 })
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut o.reading_pane, ReadingPane::Right, "Rechts");
-                                    ui.selectable_value(&mut o.reading_pane, ReadingPane::Bottom, "Unten");
-                                    ui.selectable_value(&mut o.reading_pane, ReadingPane::Off, "Aus");
+                                    ui.selectable_value(&mut o.reading_pane, ReadingPane::Right, "Right");
+                                    ui.selectable_value(&mut o.reading_pane, ReadingPane::Bottom, "Bottom");
+                                    ui.selectable_value(&mut o.reading_pane, ReadingPane::Off, "Off");
                                 });
                         });
-                        ui.checkbox(&mut o.mark_read, "Elemente als gelesen markieren, wenn sie im Lesebereich angezeigt werden");
-                        ui.checkbox(&mut o.preview, "Nachrichtenvorschau in der Nachrichtenliste anzeigen");
+                        ui.checkbox(&mut o.mark_read, "Mark items as read when viewed in the Reading Pane");
+                        ui.checkbox(&mut o.preview, "Show message preview in the message list");
                     }
                     2 => {
-                        heading(ui, "Arbeitszeit");
+                        heading(ui, "Work time");
                         ui.horizontal(|ui| {
-                            ui.label("Beginnt um:");
+                            ui.label("Start time:");
                             hour_combo(ui, "ws", &mut o.work_start);
                             ui.add_space(20.0);
-                            ui.label("Endet um:");
+                            ui.label("End time:");
                             hour_combo(ui, "we", &mut o.work_end);
                         });
                     }
                     _ => {
-                        heading(ui, "Senden und Empfangen");
+                        heading(ui, "Send and receive");
                         let minutes = std::env::var("OPENLOOK_SYNC_MINUTES").unwrap_or_else(|_| "5".into());
-                        ui.label(format!("Automatisches Senden/Empfangen alle {minutes} Minuten (Umgebungsvariable OPENLOOK_SYNC_MINUTES)."));
+                        ui.label(format!("Automatic Send/Receive every {minutes} minutes (environment variable OPENLOOK_SYNC_MINUTES)."));
                         heading(ui, "Microsoft 365");
                         match &self.st.graph_client_id {
-                            Some(id) => ui.label(format!("Anwendungs-ID: {id}")),
-                            None => ui.label("Für die Microsoft-Anmeldung die Umgebungsvariable OPENLOOK_GRAPH_CLIENT_ID setzen (siehe README)."),
+                            Some(id) => ui.label(format!("Application ID: {id}")),
+                            None => ui.label("To sign in with Microsoft, set the environment variable OPENLOOK_GRAPH_CLIENT_ID (see README)."),
                         };
                     }
                 }
@@ -534,7 +534,7 @@ impl App {
         if ok {
             if o.work_end <= o.work_start {
                 self.toast(
-                    "Das Ende der Arbeitszeit muss nach dem Beginn liegen.",
+                    "The end of the work time must be after the start.",
                     true,
                 );
                 return false;
@@ -601,7 +601,7 @@ impl App {
         let closed = chrome::native_window(
             ctx,
             vid,
-            "Konto hinzufügen",
+            "Add Account",
             [560.0, 600.0],
             &t,
             |ui| {
@@ -614,10 +614,10 @@ impl App {
                 if a.done {
                     ui.vertical_centered(|ui| {
                         ui.label(RichText::new(ph::CHECK_CIRCLE).size(40.0).color(chrome::IC_GREEN));
-                        ui.label(RichText::new("Das Konto wurde erfolgreich hinzugefügt.").size(16.0));
+                        ui.label(RichText::new("Account successfully added.").size(16.0));
                         ui.label(a.email.trim());
                         ui.add_space(20.0);
-                        if ui.add_sized([120.0, 30.0], egui::Button::new("Fertig")).clicked() {
+                        if ui.add_sized([120.0, 30.0], egui::Button::new("Done")).clicked() {
                             close = true;
                         }
                     });
@@ -627,22 +627,22 @@ impl App {
                     ui.vertical_centered(|ui| {
                         if let Some(e) = &error {
                             ui.label(RichText::new(ph::WARNING).size(36.0).color(t.danger));
-                            ui.label(RichText::new("Fehler").size(18.0));
+                            ui.label(RichText::new("Error").size(18.0));
                             ui.add(egui::Label::new(RichText::new(e).color(t.danger)).wrap());
                             ui.add_space(12.0);
-                            if ui.button("Zurück").clicked() {
+                            if ui.button("Back").clicked() {
                                 a.started = None;
                             }
                         } else if let (true, Some((code, uri))) = (a.graph, &device) {
-                            ui.label("Melden Sie sich bei Microsoft an. Öffnen Sie die Anmeldeseite und geben Sie diesen Code ein:");
+                            ui.label("Sign in to Microsoft. Open the sign-in page and enter this code:");
                             ui.add_space(8.0);
                             ui.label(RichText::new(code).size(32.0).strong());
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
-                                if ui.button(format!("{}  Code kopieren", ph::COPY)).clicked() {
+                                if ui.button(format!("{}  Copy code", ph::COPY)).clicked() {
                                     ui.ctx().copy_text(code.clone());
                                 }
-                                if ui.button(format!("{}  Anmeldeseite öffnen", ph::GLOBE)).clicked() {
+                                if ui.button(format!("{}  Open sign-in page", ph::GLOBE)).clicked() {
                                     super::open_external(uri);
                                 }
                             });
@@ -651,24 +651,24 @@ impl App {
                             ui.add(egui::Spinner::new());
                         } else {
                             ui.add(egui::Spinner::new().size(28.0));
-                            ui.label("Konto wird hinzugefügt …");
+                            ui.label("Adding account…");
                         }
                     });
                     return;
                 }
                 match a.step {
                     0 => {
-                        ui.label("E-Mail-Adresse");
+                        ui.label("Email address");
                         ui.add(egui::TextEdit::singleline(&mut a.email).desired_width(f32::INFINITY));
                         ui.add_space(6.0);
-                        ui.label("Name (wie er Empfängern angezeigt wird)");
+                        ui.label("Name (as shown to recipients)");
                         ui.add(egui::TextEdit::singleline(&mut a.name).desired_width(f32::INFINITY));
                         ui.add_space(12.0);
-                        ui.collapsing("Erweiterte Optionen", |ui| {
-                            ui.checkbox(&mut a.manual, "Ich möchte mein Konto manuell einrichten");
+                        ui.collapsing("Advanced options", |ui| {
+                            ui.checkbox(&mut a.manual, "Let me set up my account manually");
                         });
                         ui.add_space(12.0);
-                        if ui.add_sized([120.0, 30.0], egui::Button::new("Verbinden")).clicked() && a.email.contains('@') {
+                        if ui.add_sized([120.0, 30.0], egui::Button::new("Connect")).clicked() && a.email.contains('@') {
                             let domain = a.email.rsplit('@').next().unwrap_or("").to_lowercase();
                             let ms = ["outlook.com", "hotmail.com", "live.com", "outlook.de", "hotmail.de", "msn.com"].contains(&domain.as_str());
                             if let Some(p) = preset_for(&domain) {
@@ -682,7 +682,7 @@ impl App {
                         }
                     }
                     1 => {
-                        ui.label(RichText::new("Erweiterte Einrichtung").size(18.0));
+                        ui.label(RichText::new("Advanced setup").size(18.0));
                         ui.add_space(10.0);
                         ui.horizontal_wrapped(|ui| {
                             let tile = |ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool| {
@@ -705,18 +705,18 @@ impl App {
                         });
                         if !graph_enabled {
                             ui.add_space(8.0);
-                            ui.label(RichText::new("Microsoft 365 / Outlook.com: zuerst OPENLOOK_GRAPH_CLIENT_ID setzen (siehe README).").color(t.text_weak));
+                            ui.label(RichText::new("Microsoft 365 / Outlook.com: set OPENLOOK_GRAPH_CLIENT_ID first (see README).").color(t.text_weak));
                         }
                         ui.add_space(14.0);
-                        if ui.button("Zurück").clicked() {
+                        if ui.button("Back").clicked() {
                             a.step = 0;
                         }
                     }
                     _ => {
-                        ui.label(RichText::new("IMAP-Kontoeinstellungen").size(18.0));
+                        ui.label(RichText::new("IMAP Account Settings").size(18.0));
                         ui.label(RichText::new(a.email.trim()).color(t.text_weak));
                         ui.add_space(10.0);
-                        ui.label(RichText::new("Eingehende E-Mail").strong());
+                        ui.label(RichText::new("Incoming mail").strong());
                         egui::Grid::new("in").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                             ui.label("Server");
                             ui.add(egui::TextEdit::singleline(&mut a.cfg.imap_host).desired_width(260.0));
@@ -724,12 +724,12 @@ impl App {
                             ui.label("Port");
                             ui.add(egui::DragValue::new(&mut a.cfg.imap_port).range(1..=65535));
                             ui.end_row();
-                            ui.label("Verschlüsselungsmethode");
+                            ui.label("Encryption method");
                             ui.label("SSL/TLS");
                             ui.end_row();
                         });
                         ui.add_space(6.0);
-                        ui.label(RichText::new("Ausgehende E-Mail").strong());
+                        ui.label(RichText::new("Outgoing mail").strong());
                         egui::Grid::new("out").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                             ui.label("Server");
                             ui.add(egui::TextEdit::singleline(&mut a.cfg.smtp_host).desired_width(260.0));
@@ -737,26 +737,26 @@ impl App {
                             ui.label("Port");
                             ui.add(egui::DragValue::new(&mut a.cfg.smtp_port).range(1..=65535));
                             ui.end_row();
-                            ui.label("Verschlüsselungsmethode");
+                            ui.label("Encryption method");
                             ui.label(if a.cfg.smtp_port == 465 { "SSL/TLS" } else { "STARTTLS" });
                             ui.end_row();
                         });
                         ui.add_space(6.0);
                         egui::Grid::new("cred").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                            ui.label("Benutzername");
+                            ui.label("User Name");
                             ui.add(egui::TextEdit::singleline(&mut a.cfg.username).desired_width(260.0));
                             ui.end_row();
-                            ui.label("Kennwort");
+                            ui.label("Password");
                             ui.add(egui::TextEdit::singleline(&mut a.cfg.password).password(true).desired_width(260.0));
                             ui.end_row();
                         });
-                        ui.label(RichText::new("Gmail, iCloud und Yahoo verlangen ein App-Kennwort.").size(12.0).color(t.text_weak));
+                        ui.label(RichText::new("Gmail, iCloud and Yahoo require an app password.").size(12.0).color(t.text_weak));
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Zurück").clicked() {
+                            if ui.button("Back").clicked() {
                                 a.step = 1;
                             }
-                            if ui.add_sized([120.0, 28.0], egui::Button::new("Verbinden")).clicked() {
+                            if ui.add_sized([120.0, 28.0], egui::Button::new("Connect")).clicked() {
                                 start_imap = true;
                             }
                         });
@@ -773,7 +773,7 @@ impl App {
                 a.email.trim().to_string(),
                 a.name.trim().to_string(),
             );
-            self.spawn(Some("Konto hinzugefügt."), move |st, _| async move {
+            self.spawn(Some("Account added."), move |st, _| async move {
                 providers::imap::test_login(&cfg).await?;
                 let id = db::insert_account(
                     &st.db(),
@@ -792,7 +792,7 @@ impl App {
             a.max_id = self.data.accounts.iter().map(|x| x.id).max().unwrap_or(0);
             self.device_code = None;
             self.spawn(
-                Some("Microsoft-Konto verbunden."),
+                Some("Microsoft account connected."),
                 move |st, tx| async move {
                     let dc = providers::graph::start_device_flow(&st).await?;
                     let _ = tx.send(super::Done::DeviceCode {
@@ -848,7 +848,7 @@ impl App {
         let closed = chrome::native_window(
             ctx,
             vid,
-            &format!("Automatische Antworten - {email}"),
+            &format!("Automatic Replies - {email}"),
             [700.0, 620.0],
             &t,
             |ui| {
@@ -857,7 +857,7 @@ impl App {
                     .show_inside(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .add_sized([90.0, 26.0], egui::Button::new("Abbrechen"))
+                                .add_sized([90.0, 26.0], egui::Button::new("Cancel"))
                                 .clicked()
                             {
                                 cancel = true;
@@ -877,38 +877,38 @@ impl App {
                 if a.loading {
                     match &load_error {
                         Some(e) => {
-                            ui.label(RichText::new(format!("{}  Die Einstellungen konnten nicht geladen werden:", ph::WARNING)).color(t.danger));
+                            ui.label(RichText::new(format!("{}  The settings could not be loaded:", ph::WARNING)).color(t.danger));
                             ui.add(egui::Label::new(e.as_str()).wrap());
                         }
                         None => {
                             ui.horizontal(|ui| {
                                 ui.add(egui::Spinner::new());
-                                ui.label("Einstellungen werden vom Server geladen …");
+                                ui.label("Loading settings from the server…");
                             });
                         }
                     }
                     return;
                 }
-                if ui.radio(!a.data.enabled, "Keine automatischen Antworten senden").clicked() {
+                if ui.radio(!a.data.enabled, "Do not send automatic replies").clicked() {
                     a.data.enabled = false;
                 }
-                if ui.radio(a.data.enabled, "Automatische Antworten senden").clicked() {
+                if ui.radio(a.data.enabled, "Send automatic replies").clicked() {
                     a.data.enabled = true;
                 }
                 ui.add_enabled_ui(a.data.enabled, |ui| {
                     ui.indent("ar_sched", |ui| {
-                        ui.checkbox(&mut a.data.scheduled, "Nur in diesem Zeitraum senden:");
+                        ui.checkbox(&mut a.data.scheduled, "Only send during this time range:");
                         ui.add_enabled_ui(a.data.scheduled, |ui| {
                             egui::Grid::new("ar_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                                ui.label("Startzeit:");
+                                ui.label("Start time:");
                                 ui.horizontal(|ui| {
-                                    ui.add(egui_extras::DatePickerButton::new(&mut a.start.0).id_salt("ar_sd").format("%d.%m.%Y"));
+                                    ui.add(egui_extras::DatePickerButton::new(&mut a.start.0).id_salt("ar_sd").format("%d/%m/%Y"));
                                     hour_combo(ui, "ar_sh", &mut a.start.1);
                                 });
                                 ui.end_row();
-                                ui.label("Endzeit:");
+                                ui.label("End time:");
                                 ui.horizontal(|ui| {
-                                    ui.add(egui_extras::DatePickerButton::new(&mut a.end.0).id_salt("ar_ed").format("%d.%m.%Y"));
+                                    ui.add(egui_extras::DatePickerButton::new(&mut a.end.0).id_salt("ar_ed").format("%d/%m/%Y"));
                                     hour_combo(ui, "ar_eh", &mut a.end.1);
                                 });
                                 ui.end_row();
@@ -918,14 +918,14 @@ impl App {
                     ui.add_space(8.0);
                     if a.imap {
                         // Sieve knows no organisation boundary and works per day.
-                        ui.label(RichText::new("Antworttext").strong());
+                        ui.label(RichText::new("Reply text").strong());
                         ui.add(egui::TextEdit::multiline(&mut a.data.internal).desired_rows(8).desired_width(f32::INFINITY));
-                        ui.label(RichText::new("Der Zeitraum gilt tageweise; jeder Absender erhält höchstens eine Antwort pro Tag.").size(12.0).color(t.text_weak));
+                        ui.label(RichText::new("The time range applies in whole days; each sender receives at most one reply per day.").size(12.0).color(t.text_weak));
                     } else {
-                        ui.label(RichText::new("Innerhalb meiner Organisation").strong());
+                        ui.label(RichText::new("Inside My Organization").strong());
                         ui.add(egui::TextEdit::multiline(&mut a.data.internal).desired_rows(6).desired_width(f32::INFINITY));
                         ui.add_space(6.0);
-                        ui.label(RichText::new("Außerhalb meiner Organisation (leer = keine Antwort nach außen)").strong());
+                        ui.label(RichText::new("Outside My Organization (empty = no reply to outside senders)").strong());
                         ui.add(egui::TextEdit::multiline(&mut a.data.external).desired_rows(6).desired_width(f32::INFINITY));
                     }
                 });
@@ -942,12 +942,12 @@ impl App {
             data.start = to_utc(a.start.0, a.start.1);
             data.end = to_utc(a.end.0, a.end.1);
             if data.scheduled && data.end <= data.start {
-                self.toast("Die Endzeit muss nach der Startzeit liegen.", true);
+                self.toast("The end time must be after the start time.", true);
                 return false;
             }
             let id = a.account_id;
             self.spawn(
-                Some("Automatische Antworten gespeichert."),
+                Some("Automatic replies saved."),
                 move |st, _| async move { providers::set_auto_reply(&st, id, &data).await },
             );
             return true;

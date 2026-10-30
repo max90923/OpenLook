@@ -267,7 +267,7 @@ pub fn resize_edges(ctx: &egui::Context) {
     }
 }
 
-/// Ribbon tab band. Returns true when "Datei" was clicked.
+/// Ribbon tab band. Returns true when "File" was clicked.
 pub fn ribbon_tabs(
     ui: &mut egui::Ui,
     t: &Theme,
@@ -287,7 +287,7 @@ pub fn ribbon_tabs(
     row.spacing_mut().item_spacing.x = 0.0;
     row.add_space(4.0);
     let font = egui::FontId::proportional(13.0);
-    let labels = std::iter::once("Datei").chain(tabs.iter().copied());
+    let labels = std::iter::once("File").chain(tabs.iter().copied());
     for (i, label) in labels.enumerate() {
         let g = row
             .painter()
@@ -598,7 +598,7 @@ pub fn item_ribbon(ui: &mut egui::Ui, t: &Theme, tab: &str, add: impl FnOnce(&mu
 }
 
 /// Ribbon with several tabs for item windows; `add` gets the selected tab.
-/// Returns true when "Datei" was clicked.
+/// Returns true when "File" was clicked.
 pub fn item_ribbon_tabs(
     ui: &mut egui::Ui,
     t: &Theme,
