@@ -122,7 +122,7 @@ pub struct NewMessage {
 }
 
 /// File attached to a message (incoming or outgoing).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NewAttachment {
     pub name: String,
     pub mime: String,

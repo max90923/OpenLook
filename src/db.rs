@@ -125,6 +125,14 @@ CREATE TABLE IF NOT EXISTS journal (
     notes   TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS outbox (
+    id          INTEGER PRIMARY KEY,
+    account_id  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    message_id  INTEGER,
+    send_at     TEXT NOT NULL,
+    payload     TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -249,7 +257,7 @@ pub fn list_folders(c: &Connection) -> Result<Vec<Folder>> {
                 f.parent_remote
          FROM folders f
          ORDER BY f.account_id,
-                  CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'sent' THEN 2
+                  CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'outbox' THEN 1 WHEN 'sent' THEN 2
                               WHEN 'trash' THEN 3 WHEN 'junk' THEN 4 WHEN 'archive' THEN 5 ELSE 6 END,
                   f.name COLLATE NOCASE",
     )?;
@@ -354,7 +362,7 @@ pub fn prune_folders(c: &Connection, account_id: i64, keep: &[i64]) -> Result<()
     let ids: Vec<String> = keep.iter().map(|i| i.to_string()).collect();
     c.execute(
         &format!(
-            "DELETE FROM folders WHERE account_id = ? AND id NOT IN ({})",
+            "DELETE FROM folders WHERE account_id = ? AND role != 'outbox' AND id NOT IN ({})",
             if ids.is_empty() {
                 "0".to_string()
             } else {

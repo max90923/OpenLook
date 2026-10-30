@@ -45,6 +45,14 @@ pub struct Composer {
     sel: (usize, usize),
     /// `sel` was changed by a format button and must be pushed into the editor.
     sel_dirty: bool,
+    tab: usize,
+    read_receipt: bool,
+    delivery_receipt: bool,
+    /// "Antworten richten an": Some = field shown.
+    reply_to: Option<String>,
+    /// "Übermittlung verzögern": not before this local date and time.
+    send_at: Option<(chrono::NaiveDate, chrono::NaiveTime)>,
+    file_menu: bool,
     changed: bool,
     confirm_close: bool,
     address_book: Option<u8>,
@@ -76,6 +84,12 @@ impl Composer {
             attachments: vec![],
             sel: (0, 0),
             sel_dirty: false,
+            tab: 0,
+            read_receipt: false,
+            delivery_receipt: false,
+            reply_to: None,
+            send_at: None,
+            file_menu: false,
         }
     }
 
@@ -89,6 +103,12 @@ impl Composer {
             body_html: super::html::markup_to_html(&self.body),
             importance: self.importance.clone(),
             attachments: self.attachments.clone(),
+            read_receipt: self.read_receipt,
+            delivery_receipt: self.delivery_receipt,
+            reply_to: self.reply_to.clone().unwrap_or_default(),
+            send_at: self
+                .send_at
+                .map(|(d, t)| super::local_to_utc_string(d.and_time(t))),
         }
     }
 }
@@ -227,172 +247,188 @@ impl App {
                 ui.ctx()
                     .input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Text(_))));
             }
-            chrome::item_ribbon(ui, &t, "Nachricht", |ui| {
-                chrome::group(ui, &t, "Namen", |ui| {
-                    if chrome::large(ui, &t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", !c.sending)
-                        .clicked()
-                    {
-                        c.address_book = Some(0);
-                    }
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::USER_CHECK,
-                        IC_BLUE,
-                        "Namen\nüberprüfen",
-                        !c.sending,
-                    )
-                    .clicked()
-                    {
-                        c.to = resolve_names(&c.to, &contacts);
-                        c.cc = resolve_names(&c.cc, &contacts);
-                        c.bcc = resolve_names(&c.bcc, &contacts);
-                    }
-                });
-                chrome::group(ui, &t, "Basistext", |ui| {
-                    chrome::column(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            for (icon, marker, tip) in [
-                                (ph::TEXT_B, super::html::BOLD, "Fett (Strg+B)"),
-                                (ph::TEXT_ITALIC, super::html::ITALIC, "Kursiv (Strg+I)"),
-                                (
-                                    ph::TEXT_UNDERLINE,
-                                    super::html::UNDERLINE,
-                                    "Unterstrichen (Strg+U)",
-                                ),
-                            ] {
-                                if chrome::small(ui, &t, icon, t.text, "", !c.sending)
-                                    .on_hover_text(tip)
-                                    .clicked()
-                                {
-                                    c.sel = super::html::toggle_wrap(&mut c.body, c.sel, marker);
-                                    c.sel_dirty = true;
-                                    c.changed = true;
-                                }
-                            }
+            let mut tab = c.tab;
+            let file = chrome::item_ribbon_tabs(
+                ui,
+                &t,
+                &["Nachricht", "Einfügen", "Optionen", "Text formatieren"],
+                &mut tab,
+                |ui, tab| match tab {
+                    0 => {
+                        group_names(ui, &t, c, &contacts);
+                        group_basic_text(ui, &t, c);
+                        chrome::group(ui, &t, "Einschließen", |ui| {
+                            attach_button(ui, &t, c);
+                            signature_button(ui, &t, c, &signature);
                         });
-                        ui.horizontal(|ui| {
-                            if chrome::small(ui, &t, ph::LIST_BULLETS, t.text, "", !c.sending)
-                                .on_hover_text("Aufzählungszeichen")
-                                .clicked()
-                            {
-                                super::html::toggle_list(&mut c.body, c.sel, false);
-                                c.sel_dirty = true;
-                                c.changed = true;
-                            }
-                            if chrome::small(ui, &t, ph::LIST_NUMBERS, t.text, "", !c.sending)
-                                .on_hover_text("Nummerierung")
-                                .clicked()
-                            {
-                                super::html::toggle_list(&mut c.body, c.sel, true);
-                                c.sel_dirty = true;
-                                c.changed = true;
-                            }
-                        });
-                    });
-                });
-                chrome::group(ui, &t, "Einschließen", |ui| {
-                    if chrome::large(ui, &t, ph::PAPERCLIP, IC_BLUE, "Datei\nanfügen", !c.sending)
-                        .clicked()
-                    {
-                        if let Some(files) = rfd::FileDialog::new()
-                            .set_title("Datei einfügen")
-                            .pick_files()
-                        {
-                            for f in files {
-                                match std::fs::read(&f) {
-                                    Ok(data) => c.attachments.push(NewAttachment {
-                                        name: f
-                                            .file_name()
-                                            .map(|n| n.to_string_lossy().into_owned())
-                                            .unwrap_or_else(|| "Anlage".into()),
-                                        mime: mime_for(&f),
-                                        data,
-                                    }),
-                                    Err(e) => tracing::warn!("{}: {e}", f.display()),
-                                }
-                                c.changed = true;
-                            }
-                        }
+                        group_tags(ui, &t, c);
                     }
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::SIGNATURE,
-                        IC_BLUE,
-                        "Signatur",
-                        !signature.is_empty(),
-                    )
-                    .clicked()
-                    {
-                        c.body.push_str(&format!("\n\n{signature}"));
-                        c.changed = true;
-                    }
-                    chrome::column(ui, |ui| {
-                        if chrome::small(ui, &t, ph::CLOCK, IC_BLUE, "Datum und Uhrzeit", true)
-                            .clicked()
-                        {
-                            c.body.push_str(
-                                &chrono::Local::now().format("%d.%m.%Y %H:%M").to_string(),
+                    1 => {
+                        chrome::group(ui, &t, "Einschließen", |ui| {
+                            attach_button(ui, &t, c);
+                            let r = chrome::large(
+                                ui,
+                                &t,
+                                ph::IDENTIFICATION_CARD,
+                                IC_BLUE,
+                                "Visiten-\nkarte \u{E136}",
+                                !contacts.is_empty(),
                             );
-                            c.changed = true;
-                        }
-                    });
-                });
-                chrome::group(ui, &t, "Kategorien", |ui| {
-                    chrome::column(ui, |ui| {
-                        let high = c.importance == "high";
-                        if chrome::small(
-                            ui,
-                            &t,
-                            "!",
-                            IC_RED,
-                            if high {
-                                "Wichtigkeit: hoch  \u{E182}"
-                            } else {
-                                "Wichtigkeit: hoch"
-                            },
-                            true,
-                        )
-                        .clicked()
-                        {
-                            c.importance = if high { "normal".into() } else { "high".into() };
-                        }
-                        let low = c.importance == "low";
-                        if chrome::small(
-                            ui,
-                            &t,
-                            ph::ARROW_DOWN,
-                            IC_BLUE,
-                            if low {
-                                "Wichtigkeit: niedrig  \u{E182}"
-                            } else {
-                                "Wichtigkeit: niedrig"
-                            },
-                            true,
-                        )
-                        .clicked()
-                        {
-                            c.importance = if low { "normal".into() } else { "low".into() };
-                        }
-                    });
-                });
-                chrome::group(ui, &t, "Felder anzeigen", |ui| {
-                    if chrome::large(
-                        ui,
-                        &t,
-                        ph::USERS,
-                        IC_GREY,
-                        if c.show_bcc { "Bcc  \u{E182}" } else { "Bcc" },
-                        true,
-                    )
-                    .clicked()
-                    {
-                        c.show_bcc = !c.show_bcc;
+                            chrome::menu(&r, |ui| {
+                                for k in &contacts {
+                                    if ui
+                                        .add(egui::Button::new(&k.display_name).frame(false))
+                                        .clicked()
+                                    {
+                                        c.attachments.push(NewAttachment {
+                                            name: format!(
+                                                "{}.vcf",
+                                                mail::safe_file_name(&k.display_name)
+                                            ),
+                                            mime: "text/vcard".into(),
+                                            data: vcard(k).into_bytes(),
+                                        });
+                                        c.changed = true;
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            signature_button(ui, &t, c, &signature);
+                        });
+                        chrome::group(ui, &t, "Links", |ui| {
+                            let r =
+                                chrome::large(ui, &t, ph::GLOBE, IC_BLUE, "Link \u{E136}", true);
+                            chrome::menu(&r, |ui| {
+                                ui.label("Adresse:");
+                                let id = egui::Id::new(("link_input", wid));
+                                let mut url: String = ui
+                                    .data(|d| d.get_temp(id))
+                                    .unwrap_or_else(|| "https://".to_string());
+                                let resp = ui
+                                    .add(egui::TextEdit::singleline(&mut url).desired_width(280.0));
+                                ui.data_mut(|d| d.insert_temp(id, url.clone()));
+                                if ui.button("Einfügen").clicked()
+                                    || (resp.lost_focus()
+                                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                                {
+                                    insert_at_cursor(c, &format!(" {} ", url.trim()));
+                                    ui.data_mut(|d| d.remove::<String>(id));
+                                    ui.close();
+                                }
+                            });
+                        });
+                        chrome::group(ui, &t, "Text", |ui| {
+                            if chrome::large(ui, &t, ph::CLOCK, IC_BLUE, "Datum und\nUhrzeit", true)
+                                .clicked()
+                            {
+                                insert_at_cursor(
+                                    c,
+                                    &chrono::Local::now().format("%d.%m.%Y %H:%M").to_string(),
+                                );
+                            }
+                        });
                     }
-                });
-            });
-
+                    2 => {
+                        chrome::group(ui, &t, "Felder anzeigen", |ui| {
+                            if chrome::large(
+                                ui,
+                                &t,
+                                ph::USERS,
+                                IC_GREY,
+                                if c.show_bcc { "Bcc  \u{E182}" } else { "Bcc" },
+                                true,
+                            )
+                            .clicked()
+                            {
+                                c.show_bcc = !c.show_bcc;
+                            }
+                        });
+                        chrome::group(ui, &t, "Verlauf", |ui| {
+                            chrome::column(ui, |ui| {
+                                let check = |on: bool, label: &str| {
+                                    if on {
+                                        format!("{label}  \u{E182}")
+                                    } else {
+                                        label.to_string()
+                                    }
+                                };
+                                if chrome::small(
+                                    ui,
+                                    &t,
+                                    ph::ENVELOPE_SIMPLE_OPEN,
+                                    IC_BLUE,
+                                    &check(c.read_receipt, "Lesebestätigung anfordern"),
+                                    true,
+                                )
+                                .clicked()
+                                {
+                                    c.read_receipt = !c.read_receipt;
+                                }
+                                if chrome::small(
+                                    ui,
+                                    &t,
+                                    ph::PAPER_PLANE_RIGHT,
+                                    IC_BLUE,
+                                    &check(
+                                        c.delivery_receipt,
+                                        "Übermittlungsbestätigung anfordern",
+                                    ),
+                                    true,
+                                )
+                                .clicked()
+                                {
+                                    c.delivery_receipt = !c.delivery_receipt;
+                                }
+                            });
+                        });
+                        chrome::group(ui, &t, "Weitere Optionen", |ui| {
+                            let label = if c.send_at.is_some() {
+                                "Übermittlung\nverzögern \u{E182}"
+                            } else {
+                                "Übermittlung\nverzögern"
+                            };
+                            if chrome::large(ui, &t, ph::CLOCK, IC_BLUE, label, true).clicked() {
+                                c.send_at = match c.send_at {
+                                    Some(_) => None,
+                                    None => {
+                                        let next = chrono::Local::now().naive_local()
+                                            + chrono::Duration::hours(1);
+                                        Some((
+                                            next.date(),
+                                            chrono::NaiveTime::from_hms_opt(
+                                                chrono::Timelike::hour(&next),
+                                                0,
+                                                0,
+                                            )
+                                            .unwrap(),
+                                        ))
+                                    }
+                                };
+                            }
+                            let label = if c.reply_to.is_some() {
+                                "Antworten\nrichten an \u{E182}"
+                            } else {
+                                "Antworten\nrichten an"
+                            };
+                            if chrome::large(ui, &t, ph::ARROW_BEND_UP_LEFT, IC_PURPLE, label, true)
+                                .clicked()
+                            {
+                                c.reply_to = if c.reply_to.is_some() {
+                                    None
+                                } else {
+                                    Some(String::new())
+                                };
+                            }
+                        });
+                        group_tags(ui, &t, c);
+                    }
+                    _ => group_basic_text(ui, &t, c),
+                },
+            );
+            c.tab = tab;
+            if file {
+                c.file_menu = !c.file_menu;
+            }
             egui::Frame::new()
                 .inner_margin(egui::Margin::symmetric(12, 10))
                 .show(ui, |ui| {
@@ -498,6 +534,45 @@ impl App {
                             );
                             c.changed |= r.changed();
                         });
+                        if let Some(rt) = &mut c.reply_to {
+                            ui.horizontal(|ui| {
+                                ui.add_sized([136.0, 24.0], egui::Label::new("Antworten an"));
+                                ui.add(
+                                    egui::TextEdit::singleline(rt)
+                                        .hint_text("Adresse für Antworten")
+                                        .desired_width(ui.available_width() - 16.0),
+                                );
+                            });
+                        }
+                        if let Some((d, tm)) = &mut c.send_at {
+                            ui.horizontal(|ui| {
+                                ui.add_sized([136.0, 24.0], egui::Label::new("Nicht senden vor"));
+                                ui.add(
+                                    egui_extras::DatePickerButton::new(d)
+                                        .id_salt(&format!("send_at{wid}"))
+                                        .format("%d.%m.%Y"),
+                                );
+                                egui::ComboBox::from_id_salt(("send_at_time", wid))
+                                    .width(70.0)
+                                    .selected_text(tm.format("%H:%M").to_string())
+                                    .height(300.0)
+                                    .show_ui(ui, |ui| {
+                                        for i in 0..96 {
+                                            let x = chrono::NaiveTime::from_hms_opt(
+                                                i / 4,
+                                                (i % 4) * 15,
+                                                0,
+                                            )
+                                            .unwrap();
+                                            ui.selectable_value(
+                                                tm,
+                                                x,
+                                                x.format("%H:%M").to_string(),
+                                            );
+                                        }
+                                    });
+                            });
+                        }
                         if !c.attachments.is_empty() {
                             ui.horizontal_wrapped(|ui| {
                                 ui.add_sized([136.0, 24.0], egui::Label::new("Angefügt"));
@@ -637,6 +712,57 @@ impl App {
                     c.address_book = None;
                 }
             }
+            if c.file_menu {
+                let mut open = true;
+                egui::Window::new("Datei")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 60.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.set_min_width(220.0);
+                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Speichern (Strg+S)") {
+                            save = true;
+                            c.file_menu = false;
+                        }
+                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Speichern unter…") {
+                            c.file_menu = false;
+                            let from = accounts
+                                .iter()
+                                .find(|a| a.id == c.account_id)
+                                .map(|a| format!("{} <{}>", a.name, a.email))
+                                .unwrap_or_default();
+                            let name = format!(
+                                "{}.eml",
+                                mail::safe_file_name(if c.subject.trim().is_empty() {
+                                    "Nachricht"
+                                } else {
+                                    c.subject.trim()
+                                })
+                            );
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_title("Speichern unter")
+                                .set_file_name(name)
+                                .save_file()
+                            {
+                                if let Ok(m) = c.to_outgoing().to_lettre(&from) {
+                                    let _ = std::fs::write(path, m.formatted());
+                                }
+                            }
+                        }
+                        if chrome::menu_item(ui, ph::X, IC_RED, "Schließen") {
+                            c.file_menu = false;
+                            if c.changed {
+                                c.confirm_close = true
+                            } else {
+                                discard = true
+                            }
+                        }
+                    });
+                if !open {
+                    c.file_menu = false;
+                }
+            }
             if c.confirm_close {
                 egui::Window::new("MailCraft")
                     .collapsible(false)
@@ -731,8 +857,11 @@ impl App {
             .cloned()
             .collect();
         let mut acts = vec![];
+        let menu_id = egui::Id::new(("read_file_menu", id));
+        let mut close_requested = false;
         let mut close = chrome::native_window(ctx, vid, &title, [900.0, 720.0], &t, |ui| {
-            chrome::item_ribbon(ui, &t, "Nachricht", |ui| {
+            let mut tab = 0;
+            let file = chrome::item_ribbon_tabs(ui, &t, &["Nachricht"], &mut tab, |ui, _| {
                 chrome::group(ui, &t, "Löschen", |ui| {
                     if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", true).clicked() {
                         acts.push(Act::Delete(s.id));
@@ -851,8 +980,66 @@ impl App {
                     });
                 });
             });
+            if file {
+                ui.ctx().data_mut(|d| d.insert_temp(menu_id, true));
+            }
+            if ui
+                .ctx()
+                .data(|d| d.get_temp::<bool>(menu_id))
+                .unwrap_or(false)
+            {
+                let mut open = true;
+                egui::Window::new("Datei")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 60.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.set_min_width(220.0);
+                        if chrome::menu_item(ui, ph::FLOPPY_DISK, IC_BLUE, "Speichern unter…") {
+                            ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
+                            let name = format!("{}.eml", mail::safe_file_name(&s.subject));
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_title("Speichern unter")
+                                .set_file_name(name)
+                                .save_file()
+                            {
+                                let out = OutgoingMail {
+                                    to: m.to.clone(),
+                                    cc: m.cc.clone(),
+                                    subject: s.subject.clone(),
+                                    body_html: m.body_html.clone(),
+                                    importance: s.importance.clone(),
+                                    attachments: db::attachments_with_data(&self.st.db(), s.id)
+                                        .unwrap_or_default(),
+                                    ..Default::default()
+                                };
+                                let from = if s.from_name.is_empty() {
+                                    s.from_addr.clone()
+                                } else {
+                                    format!("{} <{}>", s.from_name, s.from_addr)
+                                };
+                                if let Ok(msg) = out.to_lettre(&from) {
+                                    let _ = std::fs::write(path, msg.formatted());
+                                }
+                            }
+                        }
+                        if chrome::menu_item(ui, ph::PRINTER, IC_GREY, "Drucken") {
+                            ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
+                            acts.push(Act::Print(s.id));
+                        }
+                        if chrome::menu_item(ui, ph::X, IC_RED, "Schließen") {
+                            ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
+                            close_requested = true;
+                        }
+                    });
+                if !open {
+                    ui.ctx().data_mut(|d| d.insert_temp(menu_id, false));
+                }
+            }
             mail::read_message(ui, &t, &m, &atts, false, &mut acts);
         });
+        close |= close_requested;
         // Delete/move closes the window, like Outlook.
         if acts
             .iter()
@@ -1017,5 +1204,248 @@ mod tests {
             resolve_names("anna; bob@x.de; Unbekannt", &contacts),
             "Anna Schmidt <anna@x.de>; bob@x.de; Unbekannt"
         );
+    }
+}
+
+// ---------------------------------------------------------------- ribbon groups of the message window
+
+fn group_names(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer, contacts: &[Contact]) {
+    chrome::group(ui, t, "Namen", |ui| {
+        if chrome::large(ui, t, ph::ADDRESS_BOOK, IC_BLUE, "Adressbuch", !c.sending).clicked() {
+            c.address_book = Some(0);
+        }
+        if chrome::large(
+            ui,
+            t,
+            ph::USER_CHECK,
+            IC_BLUE,
+            "Namen\nüberprüfen",
+            !c.sending,
+        )
+        .clicked()
+        {
+            c.to = resolve_names(&c.to, contacts);
+            c.cc = resolve_names(&c.cc, contacts);
+            c.bcc = resolve_names(&c.bcc, contacts);
+        }
+    });
+}
+
+fn group_basic_text(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
+    chrome::group(ui, t, "Basistext", |ui| {
+        chrome::column(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (icon, marker, tip) in [
+                    (ph::TEXT_B, super::html::BOLD, "Fett (Strg+B)"),
+                    (ph::TEXT_ITALIC, super::html::ITALIC, "Kursiv (Strg+I)"),
+                    (
+                        ph::TEXT_UNDERLINE,
+                        super::html::UNDERLINE,
+                        "Unterstrichen (Strg+U)",
+                    ),
+                ] {
+                    if chrome::small(ui, t, icon, t.text, "", !c.sending)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        c.sel = super::html::toggle_wrap(&mut c.body, c.sel, marker);
+                        c.sel_dirty = true;
+                        c.changed = true;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                if chrome::small(ui, t, ph::LIST_BULLETS, t.text, "", !c.sending)
+                    .on_hover_text("Aufzählungszeichen")
+                    .clicked()
+                {
+                    super::html::toggle_list(&mut c.body, c.sel, false);
+                    c.sel_dirty = true;
+                    c.changed = true;
+                }
+                if chrome::small(ui, t, ph::LIST_NUMBERS, t.text, "", !c.sending)
+                    .on_hover_text("Nummerierung")
+                    .clicked()
+                {
+                    super::html::toggle_list(&mut c.body, c.sel, true);
+                    c.sel_dirty = true;
+                    c.changed = true;
+                }
+            });
+        });
+    });
+}
+
+fn group_tags(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
+    chrome::group(ui, t, "Kategorien", |ui| {
+        chrome::column(ui, |ui| {
+            let high = c.importance == "high";
+            if chrome::small(
+                ui,
+                t,
+                "!",
+                IC_RED,
+                if high {
+                    "Wichtigkeit: hoch  \u{E182}"
+                } else {
+                    "Wichtigkeit: hoch"
+                },
+                true,
+            )
+            .clicked()
+            {
+                c.importance = if high { "normal".into() } else { "high".into() };
+            }
+            let low = c.importance == "low";
+            if chrome::small(
+                ui,
+                t,
+                ph::ARROW_DOWN,
+                IC_BLUE,
+                if low {
+                    "Wichtigkeit: niedrig  \u{E182}"
+                } else {
+                    "Wichtigkeit: niedrig"
+                },
+                true,
+            )
+            .clicked()
+            {
+                c.importance = if low { "normal".into() } else { "low".into() };
+            }
+        });
+    });
+}
+
+fn attach_button(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer) {
+    if chrome::large(ui, t, ph::PAPERCLIP, IC_BLUE, "Datei\nanfügen", !c.sending).clicked() {
+        if let Some(files) = rfd::FileDialog::new()
+            .set_title("Datei einfügen")
+            .pick_files()
+        {
+            for f in files {
+                match std::fs::read(&f) {
+                    Ok(data) => c.attachments.push(NewAttachment {
+                        name: f
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "Anlage".into()),
+                        mime: mime_for(&f),
+                        data,
+                    }),
+                    Err(e) => tracing::warn!("{}: {e}", f.display()),
+                }
+                c.changed = true;
+            }
+        }
+    }
+}
+
+fn signature_button(ui: &mut egui::Ui, t: &super::theme::Theme, c: &mut Composer, signature: &str) {
+    if chrome::large(
+        ui,
+        t,
+        ph::SIGNATURE,
+        IC_BLUE,
+        "Signatur",
+        !signature.is_empty(),
+    )
+    .clicked()
+    {
+        insert_at_cursor(c, &format!("\n\n{signature}"));
+    }
+}
+
+/// Insert text at the editor's cursor (or replace the selection).
+fn insert_at_cursor(c: &mut Composer, text: &str) {
+    let (a, b) = (c.sel.0.min(c.sel.1), c.sel.0.max(c.sel.1));
+    let byte = |ch: usize| {
+        c.body
+            .char_indices()
+            .nth(ch)
+            .map(|(i, _)| i)
+            .unwrap_or(c.body.len())
+    };
+    let (ba, bb) = (byte(a), byte(b));
+    c.body.replace_range(ba..bb, text);
+    let pos = a + text.chars().count();
+    c.sel = (pos, pos);
+    c.sel_dirty = true;
+    c.changed = true;
+}
+
+fn vcard_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace(',', "\\,")
+        .replace(';', "\\;")
+        .replace('\n', "\\n")
+}
+
+/// Contact as vCard 3.0 ("Visitenkarte" attachment).
+pub(super) fn vcard(c: &Contact) -> String {
+    let (first, last) = c
+        .display_name
+        .rsplit_once(' ')
+        .map(|(f, l)| (f.to_string(), l.to_string()))
+        .unwrap_or((String::new(), c.display_name.clone()));
+    let mut v = vec!["BEGIN:VCARD".to_string(), "VERSION:3.0".into()];
+    v.push(format!(
+        "N:{};{};;;",
+        vcard_escape(&last),
+        vcard_escape(&first)
+    ));
+    v.push(format!("FN:{}", vcard_escape(&c.display_name)));
+    if !c.company.is_empty() {
+        v.push(format!("ORG:{}", vcard_escape(&c.company)));
+    }
+    if !c.job_title.is_empty() {
+        v.push(format!("TITLE:{}", vcard_escape(&c.job_title)));
+    }
+    if !c.email.is_empty() {
+        v.push(format!("EMAIL;TYPE=INTERNET:{}", c.email));
+    }
+    if !c.phone.is_empty() {
+        v.push(format!("TEL;TYPE=CELL:{}", vcard_escape(&c.phone)));
+    }
+    if !c.address.is_empty() {
+        v.push(format!("ADR;TYPE=WORK:;;{};;;;", vcard_escape(&c.address)));
+    }
+    if !c.notes.is_empty() {
+        v.push(format!("NOTE:{}", vcard_escape(&c.notes)));
+    }
+    v.push("END:VCARD".into());
+    v.join("\r\n") + "\r\n"
+}
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+
+    #[test]
+    fn builds_vcard() {
+        let c = Contact {
+            display_name: "Anna Schmidt".into(),
+            email: "anna@x.de".into(),
+            company: "Contoso, GmbH".into(),
+            phone: "+49 1".into(),
+            ..Default::default()
+        };
+        let v = vcard(&c);
+        assert!(
+            v.starts_with("BEGIN:VCARD\r\nVERSION:3.0\r\nN:Schmidt;Anna;;;\r\nFN:Anna Schmidt\r\n")
+        );
+        assert!(v.contains("ORG:Contoso\\, GmbH\r\n"));
+        assert!(v.contains("EMAIL;TYPE=INTERNET:anna@x.de\r\n"));
+        assert!(v.ends_with("END:VCARD\r\n"));
+    }
+
+    #[test]
+    fn inserts_at_cursor() {
+        let mut c = Composer::blank(1);
+        c.body = "Hallo Welt".into();
+        c.sel = (6, 6);
+        insert_at_cursor(&mut c, "liebe ");
+        assert_eq!(c.body, "Hallo liebe Welt");
+        assert_eq!(c.sel, (12, 12));
     }
 }

@@ -584,3 +584,18 @@ pub fn item_ribbon(ui: &mut egui::Ui, t: &Theme, tab: &str, add: impl FnOnce(&mu
     ribbon_tabs(ui, t, &[tab], &mut sel, |_| {});
     ribbon_body(ui, t, add);
 }
+
+/// Ribbon with several tabs for item windows; `add` gets the selected tab.
+/// Returns true when "Datei" was clicked.
+pub fn item_ribbon_tabs(
+    ui: &mut egui::Ui,
+    t: &Theme,
+    tabs: &[&str],
+    selected: &mut usize,
+    add: impl FnOnce(&mut egui::Ui, usize),
+) -> bool {
+    let file = ribbon_tabs(ui, t, tabs, selected, |_| {});
+    let tab = *selected;
+    ribbon_body(ui, t, |ui| add(ui, tab));
+    file
+}

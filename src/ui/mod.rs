@@ -363,6 +363,26 @@ impl App {
                 ctx.request_repaint();
             }
         });
+        // Postausgang: mail with delayed delivery is sent when it is due.
+        let (st, tx, ctx) = (self.st.clone(), self.tx.clone(), self.ctx.clone());
+        self.rt.spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                tick.tick().await;
+                match providers::send_due(&st).await {
+                    Ok(0) => continue,
+                    Ok(n) => {
+                        let _ = tx.send(Done::Ok(Some(format!(
+                            "{n} verzögerte Nachricht(en) gesendet."
+                        ))));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Done::Err(format!("Postausgang: {e:#}")));
+                    }
+                }
+                ctx.request_repaint();
+            }
+        });
     }
 
     /// Run a job on the background runtime. `ok` is shown in the status bar.

@@ -37,7 +37,9 @@ pub struct QuickStep {
     pub actions: Vec<StepAction>,
 }
 
-const ACTION_KINDS: [(&str, fn() -> StepAction); 11] = [
+type ActionKind = (&'static str, fn() -> StepAction);
+
+const ACTION_KINDS: [ActionKind; 11] = [
     ("In Ordner verschieben", || StepAction::MoveTo {
         folder: None,
     }),

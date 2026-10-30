@@ -11,7 +11,8 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::{db, mail, models::*, state::AppState};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct OutgoingMail {
     pub account_id: i64,
     pub to: String,
@@ -22,6 +23,14 @@ pub struct OutgoingMail {
     /// low | normal | high
     pub importance: String,
     pub attachments: Vec<NewAttachment>,
+    /// "Lesebestätigung anfordern"
+    pub read_receipt: bool,
+    /// "Übermittlungsbestätigung anfordern"
+    pub delivery_receipt: bool,
+    /// "Antworten richten an"
+    pub reply_to: String,
+    /// "Übermittlung verzögern": not before this time (UTC, RFC 3339).
+    pub send_at: Option<String>,
 }
 
 impl OutgoingMail {
@@ -43,6 +52,22 @@ impl OutgoingMail {
             b = b.raw_header(header::HeaderValue::new(
                 header::HeaderName::new_from_ascii_str("Importance"),
                 self.importance.clone(),
+            ));
+        }
+        for a in split_addresses(&self.reply_to) {
+            b = b.reply_to(a.parse()?);
+        }
+        let sender = from.parse::<Mailbox>()?.email.to_string();
+        if self.read_receipt {
+            b = b.raw_header(header::HeaderValue::new(
+                header::HeaderName::new_from_ascii_str("Disposition-Notification-To"),
+                sender.clone(),
+            ));
+        }
+        if self.delivery_receipt {
+            b = b.raw_header(header::HeaderValue::new(
+                header::HeaderName::new_from_ascii_str("Return-Receipt-To"),
+                sender,
             ));
         }
         if self.attachments.is_empty() {
@@ -215,11 +240,23 @@ pub async fn delete_message(state: &AppState, id: i64) -> Result<()> {
     }
 }
 
+/// Is `send_at` still in the future?
+fn deferred(m: &OutgoingMail) -> bool {
+    m.send_at
+        .as_deref()
+        .is_some_and(|t| t > mail::now_utc().as_str())
+}
+
 pub async fn send(state: &AppState, m: &OutgoingMail) -> Result<()> {
     if split_addresses(&m.to).is_empty() {
         bail!("Mindestens ein Empfänger ist erforderlich");
     }
     let acc = account(state, m.account_id)?;
+    // Delayed delivery: Microsoft 365 holds the mail on the server; for the
+    // other accounts it waits in the local "Postausgang".
+    if deferred(m) && acc.kind != AccountKind::Graph {
+        return queue(state, &acc, m);
+    }
     match acc.kind {
         AccountKind::Local => {}
         AccountKind::Imap => {
@@ -310,6 +347,69 @@ pub async fn ensure_attachments(state: &AppState, message_id: i64) -> Result<()>
     let (rid, _) = db::message_remote(&state.db(), message_id)?;
     let list = graph::load_attachments(state, acc, &rid).await?;
     db::replace_attachments(&state.db(), message_id, &list)
+}
+
+fn queue(state: &AppState, acc: &Account, m: &OutgoingMail) -> Result<()> {
+    let c = state.db();
+    let outbox = match db::folder_by_role(&c, acc.id, "outbox")? {
+        Some(f) => f.id,
+        None => db::upsert_folder(&c, acc.id, "local-outbox", "Postausgang", "outbox")?,
+    };
+    let text = mail::strip_html(&m.body_html);
+    let message_id = db::upsert_message(
+        &c,
+        acc.id,
+        outbox,
+        &NewMessage {
+            remote_id: format!("outbox-{}", mail::now_utc()),
+            subject: m.subject.clone(),
+            from_name: acc.name.clone(),
+            from_addr: acc.email.clone(),
+            to: m.to.clone(),
+            cc: m.cc.clone(),
+            date: m.send_at.clone().unwrap_or_default(),
+            preview: format!(
+                "Wird gesendet am {}",
+                m.send_at.as_deref().unwrap_or_default()
+            ),
+            body_html: m.body_html.clone(),
+            body_text: text,
+            is_read: true,
+            has_attachments: !m.attachments.is_empty(),
+            attachments: m.attachments.clone(),
+            ..Default::default()
+        },
+    )?;
+    c.execute(
+        "INSERT INTO outbox (account_id, message_id, send_at, payload) VALUES (?, ?, ?, ?)",
+        rusqlite::params![acc.id, message_id, m.send_at, serde_json::to_string(m)?],
+    )?;
+    Ok(())
+}
+
+/// Send queued mail whose time has come. Returns the number sent.
+pub async fn send_due(state: &AppState) -> Result<usize> {
+    let due: Vec<(i64, Option<i64>, String)> = {
+        let c = state.db();
+        let mut st = c.prepare("SELECT id, message_id, payload FROM outbox WHERE send_at <= ?")?;
+        let rows = st
+            .query_map([mail::now_utc()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+    let mut sent = 0;
+    for (id, message_id, payload) in due {
+        let mut m: OutgoingMail = serde_json::from_str(&payload)?;
+        m.send_at = None;
+        send(state, &m).await?;
+        let c = state.db();
+        c.execute("DELETE FROM outbox WHERE id = ?", [id])?;
+        if let Some(mid) = message_id {
+            db::delete_message(&c, mid)?;
+        }
+        sent += 1;
+    }
+    Ok(sent)
 }
 
 // ---------------------------------------------------------------- folders
@@ -548,6 +648,74 @@ mod tests {
         delete_folder(&state, id).await.unwrap();
         assert!(db::get_folder(&state.db(), id).unwrap().is_none());
         assert!(create_folder(&state, acc, None, "  ").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delayed_delivery_waits_in_outbox() {
+        let state = AppState::in_memory();
+        crate::seed::ensure_local_account(&state.db()).unwrap();
+        let acc = db::list_accounts(&state.db()).unwrap()[0].id;
+        let later = (chrono::Utc::now() + chrono::Duration::hours(2))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
+        let m = OutgoingMail {
+            account_id: acc,
+            to: "a@x.de".into(),
+            subject: "Später".into(),
+            body_html: "x".into(),
+            send_at: Some(later),
+            ..Default::default()
+        };
+        send(&state, &m).await.unwrap();
+        let outbox = db::folder_by_role(&state.db(), acc, "outbox")
+            .unwrap()
+            .unwrap();
+        assert_eq!(outbox.total, 1);
+        assert_eq!(
+            db::folder_by_role(&state.db(), acc, "sent")
+                .unwrap()
+                .unwrap()
+                .total,
+            0
+        );
+        assert_eq!(send_due(&state).await.unwrap(), 0, "noch nicht fällig");
+        // Make it due and deliver.
+        state
+            .db()
+            .execute("UPDATE outbox SET send_at = '2000-01-01T00:00:00Z'", [])
+            .unwrap();
+        assert_eq!(send_due(&state).await.unwrap(), 1);
+        assert_eq!(
+            db::folder_by_role(&state.db(), acc, "outbox")
+                .unwrap()
+                .unwrap()
+                .total,
+            0
+        );
+        assert_eq!(
+            db::folder_by_role(&state.db(), acc, "sent")
+                .unwrap()
+                .unwrap()
+                .total,
+            1
+        );
+    }
+
+    #[test]
+    fn mime_options_headers() {
+        let m = OutgoingMail {
+            to: "b@x.de".into(),
+            subject: "S".into(),
+            body_html: "x".into(),
+            read_receipt: true,
+            delivery_receipt: true,
+            reply_to: "Team <team@x.de>".into(),
+            ..Default::default()
+        };
+        let raw = String::from_utf8(m.to_lettre("Ich <me@x.de>").unwrap().formatted()).unwrap();
+        assert!(raw.contains("Disposition-Notification-To: me@x.de"));
+        assert!(raw.contains("Return-Receipt-To: me@x.de"));
+        assert!(raw.contains("Reply-To: team@x.de"));
     }
 
     #[tokio::test]

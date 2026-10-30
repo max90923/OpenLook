@@ -636,7 +636,7 @@ pub async fn delete_message(state: &AppState, account_id: i64, remote_id: &str) 
 }
 
 pub async fn send(state: &AppState, account_id: i64, m: &OutgoingMail) -> Result<()> {
-    let body = json!({
+    let mut body = json!({
         "message": {
             "subject": m.subject,
             "body": { "contentType": "HTML", "content": m.body_html },
@@ -653,6 +653,17 @@ pub async fn send(state: &AppState, account_id: i64, m: &OutgoingMail) -> Result
         },
         "saveToSentItems": true,
     });
+    let msg = &mut body["message"];
+    msg["isReadReceiptRequested"] = json!(m.read_receipt);
+    msg["isDeliveryReceiptRequested"] = json!(m.delivery_receipt);
+    let reply_to = to_recipients(&m.reply_to);
+    if reply_to.as_array().is_some_and(|a| !a.is_empty()) {
+        msg["replyTo"] = reply_to;
+    }
+    if let Some(at) = &m.send_at {
+        // PidTagDeferredSendTime: Exchange sends the mail at that time.
+        msg["singleValueExtendedProperties"] = json!([{ "id": "SystemTime 0x3FEF", "value": at }]);
+    }
     call(state, account_id, Method::POST, "/me/sendMail", Some(body)).await?;
     Ok(())
 }

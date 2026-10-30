@@ -130,8 +130,73 @@ fn attr(tag: &str, name: &str) -> Option<String> {
     None
 }
 
+/// Split text into (piece, is_url) parts; http(s)://, www. and mailto: are URLs.
+pub fn split_urls(text: &str) -> Vec<(String, bool)> {
+    let mut out = vec![];
+    let mut rest = text;
+    loop {
+        let start = ["https://", "http://", "www.", "mailto:"]
+            .iter()
+            .filter_map(|p| rest.find(p))
+            .min();
+        let Some(i) = start
+            .filter(|&i| i == 0 || !rest[..i].ends_with(|c: char| c.is_alphanumeric() || c == '/'))
+        else {
+            if !rest.is_empty() {
+                out.push((rest.to_string(), false));
+            }
+            return out;
+        };
+        let len = rest[i..]
+            .find(|c: char| c.is_whitespace() || c == '<' || c == '>' || c == '"')
+            .unwrap_or(rest.len() - i);
+        // Trailing punctuation belongs to the sentence, not to the link.
+        let url = rest[i..i + len].trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+        if i > 0 {
+            out.push((rest[..i].to_string(), false));
+        }
+        out.push((url.to_string(), true));
+        rest = &rest[i + url.len()..];
+    }
+}
+
+fn href(url: &str) -> String {
+    if url.starts_with("www.") {
+        format!("https://{url}")
+    } else {
+        url.to_string()
+    }
+}
+
+/// Make plain-text URLs in parsed blocks clickable.
+fn autolink(blocks: &mut [Block]) {
+    for b in blocks {
+        let mut runs = vec![];
+        for r in b.runs.drain(..) {
+            if r.style.link.is_some() || r.style.mono {
+                runs.push(r);
+                continue;
+            }
+            for (piece, is_url) in split_urls(&r.text) {
+                let mut style = r.style.clone();
+                if is_url {
+                    style.link = Some(href(&piece));
+                }
+                runs.push(Run { text: piece, style });
+            }
+        }
+        b.runs = runs;
+    }
+}
+
 /// Parse HTML into blocks of styled runs.
 pub fn parse(html: &str) -> Vec<Block> {
+    let mut blocks = parse_inner(html);
+    autolink(&mut blocks);
+    blocks
+}
+
+fn parse_inner(html: &str) -> Vec<Block> {
     let mut blocks: Vec<Block> = vec![];
     let mut cur = Block::default();
     let mut style = Style {
@@ -547,6 +612,23 @@ fn escape(s: &str) -> String {
 }
 
 fn inline_html(line: &str) -> String {
+    split_urls(line)
+        .into_iter()
+        .map(|(piece, is_url)| {
+            if is_url {
+                format!(
+                    "<a href=\"{}\">{}</a>",
+                    escape(&href(&piece)),
+                    escape(&piece)
+                )
+            } else {
+                styled_html(&piece)
+            }
+        })
+        .collect()
+}
+
+fn styled_html(line: &str) -> String {
     let mut out = String::new();
     let mut st = [false; 3];
     let tags = [("b", 0), ("i", 1), ("u", 2)];
@@ -729,6 +811,29 @@ mod tests {
             .map(text_of)
             .collect();
         assert_eq!(texts, vec!["Zeile 1", "Zeile 2"]);
+    }
+
+    #[test]
+    fn links_plain_urls() {
+        assert_eq!(
+            split_urls("Siehe https://x.de/a?b=1. Oder www.y.de, mail: mailto:a@b.de"),
+            vec![
+                ("Siehe ".to_string(), false),
+                ("https://x.de/a?b=1".to_string(), true),
+                (". Oder ".to_string(), false),
+                ("www.y.de".to_string(), true),
+                (", mail: ".to_string(), false),
+                ("mailto:a@b.de".to_string(), true),
+            ]
+        );
+        let blocks =
+            parse("<div style=\"white-space:pre-wrap\">Agenda: https://contoso.com/agenda</div>");
+        assert_eq!(
+            blocks[0].runs[1].style.link.as_deref(),
+            Some("https://contoso.com/agenda")
+        );
+        assert!(markup_to_html("Link www.contoso.com")
+            .contains("<a href=\"https://www.contoso.com\">www.contoso.com</a>"));
     }
 
     #[test]
