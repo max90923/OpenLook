@@ -55,11 +55,18 @@ pub struct MailView {
     f_unread: bool,
     f_categorized: bool,
     closed_accounts: HashSet<i64>,
+    /// Active search folder (account, kind) instead of `folder_id`.
+    search_folder: Option<(i64, db::SearchFolder)>,
+    search_folders_closed: HashSet<i64>,
 }
 
 impl MailView {
     pub fn count(&self) -> usize {
         self.messages.len()
+    }
+
+    pub fn search_folder(&self) -> Option<(i64, db::SearchFolder)> {
+        self.search_folder
     }
 
     pub fn selected_id(&self) -> Option<i64> {
@@ -90,6 +97,7 @@ enum FolderDialog {
 
 pub(super) enum Act {
     Folder(i64),
+    SearchFolder(i64, db::SearchFolder),
     Select(i64),
     Open(i64),
     Patch(i64, MessagePatch),
@@ -130,11 +138,15 @@ impl App {
         }
         let searching = !self.search.trim().is_empty();
         let q = db::MessageQuery {
-            folder_id: if searching && self.mail.search_all {
+            folder_id: if (searching && self.mail.search_all) || self.mail.search_folder.is_some() {
                 None
             } else {
                 self.mail.folder_id
             },
+            search_folder: self
+                .mail
+                .search_folder
+                .filter(|_| !(searching && self.mail.search_all)),
             search: Some(self.search.clone()),
             unread_only: self.mail.filter == Filter::Unread,
             flagged_only: self.mail.filter == Filter::Flagged,
@@ -181,7 +193,16 @@ impl App {
     pub(super) fn mail_apply(&mut self, acts: Vec<Act>) {
         for a in acts {
             match a {
+                Act::SearchFolder(acc, f) => {
+                    self.mail.search_folder = Some((acc, f));
+                    self.mail.selected = None;
+                    self.search.clear();
+                    self.reload_messages();
+                    // Title bar was drawn before this click.
+                    self.ctx.request_repaint();
+                }
                 Act::Folder(id) => {
+                    self.mail.search_folder = None;
                     self.mail.folder_id = Some(id);
                     self.mail.selected = None;
                     self.search.clear();
@@ -1142,11 +1163,87 @@ impl App {
                         for f in self.data.folders.iter().filter(|f| f.account_id == acc.id) {
                             self.folder_row(ui, f, &f.name, 26.0, &mut acts);
                         }
+                        self.search_folders(ui, acc.id, &mut acts);
                     }
                     ui.add_space(8.0);
                 }
             });
         self.mail_apply(acts);
+    }
+
+    /// "Suchordner" node with Outlook's standard search folders.
+    fn search_folders(&mut self, ui: &mut egui::Ui, account: i64, acts: &mut Vec<Act>) {
+        let t = self.t;
+        let closed = self.mail.search_folders_closed.contains(&account);
+        let w = ui.available_width();
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 0, t.hover);
+        }
+        ui.painter().text(
+            egui::pos2(rect.left() + 12.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            if closed {
+                ph::CARET_RIGHT
+            } else {
+                ph::CARET_DOWN
+            },
+            egui::FontId::proportional(11.0),
+            t.text_weak,
+        );
+        ui.painter().text(
+            egui::pos2(rect.left() + 26.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            "Suchordner",
+            egui::FontId::proportional(13.0),
+            t.text,
+        );
+        if resp.clicked() {
+            if closed {
+                self.mail.search_folders_closed.remove(&account);
+            } else {
+                self.mail.search_folders_closed.insert(account);
+            }
+        }
+        if closed {
+            return;
+        }
+        for f in db::SearchFolder::ALL {
+            let active = self.mail.search_folder == Some((account, f))
+                && (self.search.trim().is_empty() || !self.mail.search_all);
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());
+            if active {
+                ui.painter().rect_filled(rect, 0, t.selected);
+            } else if resp.hovered() {
+                ui.painter().rect_filled(rect, 0, t.hover);
+            }
+            let unread = db::search_folder_unread(&self.st.db(), account, f).unwrap_or(0);
+            let font = if unread > 0 {
+                chrome::bold_font(13.0)
+            } else {
+                egui::FontId::proportional(13.0)
+            };
+            let p = ui.painter();
+            let name = super::one_line(p, f.name(), font, t.text, w - 42.0 - 50.0);
+            let name_w = name.size().x;
+            p.galley(
+                egui::pos2(rect.left() + 42.0, rect.center().y - name.size().y / 2.0),
+                name,
+                t.text,
+            );
+            if unread > 0 {
+                p.text(
+                    egui::pos2(rect.left() + 42.0 + name_w + 8.0, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    unread.to_string(),
+                    egui::FontId::proportional(13.0),
+                    t.accent,
+                );
+            }
+            if resp.clicked() {
+                acts.push(Act::SearchFolder(account, f));
+            }
+        }
     }
 
     fn folder_row(
@@ -1160,6 +1257,7 @@ impl App {
         let t = &self.t;
         let indent = indent + f.depth as f32 * 16.0;
         let active = self.mail.folder_id == Some(f.id)
+            && self.mail.search_folder.is_none()
             && (self.search.trim().is_empty() || !self.mail.search_all);
         let w = ui.available_width();
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 24.0), Sense::click());

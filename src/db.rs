@@ -404,9 +404,63 @@ fn row_summary(r: &Row) -> rusqlite::Result<MessageSummary> {
     })
 }
 
+/// Outlook's standard search folders: virtual folders over a whole account
+/// (without Gelöschte Elemente, Junk-E-Mail, Entwürfe and Postausgang).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFolder {
+    Unread,
+    Flagged,
+    Attachments,
+    Important,
+}
+
+impl SearchFolder {
+    pub const ALL: [SearchFolder; 4] = [
+        SearchFolder::Unread,
+        SearchFolder::Flagged,
+        SearchFolder::Attachments,
+        SearchFolder::Important,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SearchFolder::Unread => "Ungelesene E-Mail",
+            SearchFolder::Flagged => "Zur Nachverfolgung gekennzeichnet",
+            SearchFolder::Attachments => "E-Mail mit Anlagen",
+            SearchFolder::Important => "Wichtige E-Mail",
+        }
+    }
+
+    fn condition(self) -> &'static str {
+        match self {
+            SearchFolder::Unread => "is_read = 0",
+            SearchFolder::Flagged => "is_flagged = 1",
+            SearchFolder::Attachments => "has_attachments = 1",
+            SearchFolder::Important => "importance = 'high'",
+        }
+    }
+}
+
+const SEARCH_FOLDER_SCOPE: &str = " AND account_id = ? AND folder_id NOT IN
+    (SELECT id FROM folders WHERE role IN ('trash', 'junk', 'drafts', 'outbox'))";
+
+/// Unread messages in a search folder (shown next to its name).
+pub fn search_folder_unread(c: &Connection, account: i64, f: SearchFolder) -> Result<i64> {
+    Ok(c.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM messages WHERE is_read = 0 AND {}{SEARCH_FOLDER_SCOPE}",
+            f.condition()
+        ),
+        [account],
+        |r| r.get(0),
+    )?)
+}
+
 #[derive(Debug, Default)]
 pub struct MessageQuery {
     pub folder_id: Option<i64>,
+    /// Account and search folder; replaces `folder_id`.
+    pub search_folder: Option<(i64, SearchFolder)>,
     pub search: Option<String>,
     pub unread_only: bool,
     pub flagged_only: bool,
@@ -419,6 +473,10 @@ pub fn list_messages(c: &Connection, q: &MessageQuery) -> Result<Vec<MessageSumm
     if let Some(f) = q.folder_id {
         sql.push_str(" AND folder_id = ?");
         args.push(f.into());
+    }
+    if let Some((acc, f)) = q.search_folder {
+        sql.push_str(&format!(" AND {}{SEARCH_FOLDER_SCOPE}", f.condition()));
+        args.push(acc.into());
     }
     if let Some(s) = q.search.as_deref().filter(|s| !s.trim().is_empty()) {
         sql.push_str(
@@ -991,6 +1049,47 @@ mod tests {
 
     fn mem() -> Connection {
         open(":memory:").unwrap()
+    }
+
+    #[test]
+    fn search_folders_span_account_without_trash() {
+        let c = mem();
+        let acc = insert_account(&c, AccountKind::Local, "Test", "t@example.com", "{}").unwrap();
+        let other = insert_account(&c, AccountKind::Local, "B", "b@example.com", "{}").unwrap();
+        let inbox = upsert_folder(&c, acc, "INBOX", "Posteingang", "inbox").unwrap();
+        let archive = upsert_folder(&c, acc, "Archiv", "Archiv", "other").unwrap();
+        let trash = upsert_folder(&c, acc, "Trash", "Gelöschte Elemente", "trash").unwrap();
+        let foreign = upsert_folder(&c, other, "INBOX", "Posteingang", "inbox").unwrap();
+        for (i, (folder, acc)) in [(inbox, acc), (archive, acc), (trash, acc), (foreign, other)]
+            .into_iter()
+            .enumerate()
+        {
+            let m = NewMessage {
+                remote_id: i.to_string(),
+                has_attachments: i != 1,
+                ..Default::default()
+            };
+            upsert_message(&c, acc, folder, &m).unwrap();
+        }
+        let q = |f| MessageQuery {
+            search_folder: Some((acc, f)),
+            ..Default::default()
+        };
+        assert_eq!(
+            list_messages(&c, &q(SearchFolder::Unread)).unwrap().len(),
+            2
+        );
+        let with = list_messages(&c, &q(SearchFolder::Attachments)).unwrap();
+        assert_eq!(with.len(), 1);
+        assert_eq!(with[0].folder_id, inbox);
+        assert_eq!(
+            search_folder_unread(&c, acc, SearchFolder::Unread).unwrap(),
+            2
+        );
+        assert_eq!(
+            search_folder_unread(&c, acc, SearchFolder::Flagged).unwrap(),
+            0
+        );
     }
 
     #[test]

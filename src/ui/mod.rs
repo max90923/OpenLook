@@ -533,6 +533,17 @@ impl App {
 
     fn window_title(&self) -> String {
         let place = match self.module {
+            Module::Mail if self.mail.search_folder().is_some() => {
+                let (acc, f) = self.mail.search_folder().unwrap();
+                format!(
+                    "{} - {}",
+                    f.name(),
+                    self.data
+                        .account(acc)
+                        .map(|a| a.email.as_str())
+                        .unwrap_or_default()
+                )
+            }
             Module::Mail => {
                 let f = self
                     .mail
