@@ -19,7 +19,7 @@ Ein nativer Desktop-Client für E-Mail, Kalender, Kontakte und Aufgaben – aufg
 |---|---|
 | **E-Mail** | HTML-Anzeige (fett, kursiv, Links, Überschriften, Listen, Zitate, Tabellen), Anlagen öffnen/speichern/alle speichern, Unterhaltungsansicht, Ordnerbaum mit Unterordnern, Ordner anlegen/umbenennen/löschen, öffentliche/freigegebene IMAP-Ordner, Regeln, Drucken (`Strg+P`), Nachrichtenliste mit Gruppen (Heute, Gestern, Wochentag, Letzte Woche …), Alle/Ungelesen, Sortierung nach Datum/Von/Betreff, Suche im aktuellen Ordner oder in allen Postfächern, Lesebereich rechts/unten/aus, Nachrichtenvorschau, Antworten/Allen antworten/Weiterleiten, Löschen → „Gelöschte Elemente“, Archivieren, Junk-E-Mail, Verschieben (auch per Drag & Drop), Ungelesen/Gelesen, Kategorien, Zur Nachverfolgung, Anheften, Doppelklick öffnet die Nachricht im eigenen Fenster, Original-HTML im Browser, QuickSteps (Verschieben in, An Vorgesetzte(n), Team-E-Mail, Erledigt, Antworten und löschen, eigene QuickSteps), Ignorieren und Aufräumen von Unterhaltungen |
 | **Verfassen** | Formatierung (fett, kursiv, unterstrichen, Aufzählung, Nummerierung – wird beim Tippen formatiert angezeigt und als HTML gesendet), Datei anfügen, Weiterleiten mit Anlagen, Senden-Schaltfläche links, Von/An/Cc/Bcc, Adressbuch, Namen überprüfen, AutoVervollständigen aus den Kontakten, Kontaktgruppen, Signatur, Wichtigkeit hoch/niedrig, Lesebestätigung/Übermittlungsbestätigung, „Antworten an“, Übermittlung verzögern („Nicht senden vor“, über den Postausgang), Visitenkarte einfügen, Entwürfe, Speichern als .eml, Nachfrage „Änderungen speichern?“ |
-| **Kalender** | Datumsnavigator (zwei Monate), Tag/Arbeitswoche/Woche/Monat, Heute, Nächste 7 Tage, Arbeitszeit hervorgehoben, Jetzt-Linie, überlappende Termine nebeneinander, ganztägige Ereignisse, Kalender ein-/ausblenden, Termin und Besprechung (Teilnehmer), Serientermine (täglich, wöchentlich mit Wochentagen, monatlich, jährlich, mit/ohne Enddatum), Besprechungsanfragen annehmen/mit Vorbehalt/ablehnen (Microsoft 365), Anzeigen als, Erinnerung, Kategorien |
+| **Kalender** | Datumsnavigator (zwei Monate), Tag/Arbeitswoche/Woche/Monat, Heute, Nächste 7 Tage, Arbeitszeit hervorgehoben, Jetzt-Linie, überlappende Termine nebeneinander, ganztägige Ereignisse, Kalender ein-/ausblenden, Termin und Besprechung (Teilnehmer), Terminplanungs-Assistent (Frei/Gebucht-Raster für Organisator und Teilnehmer, AutoAuswahl des nächsten freien Zeitraums, Termin per Klick ins Raster verschieben; Teilnehmer über Microsoft 365 `getSchedule`), Serientermine (täglich, wöchentlich mit Wochentagen, monatlich, jährlich, mit/ohne Enddatum), Besprechungsanfragen annehmen/mit Vorbehalt/ablehnen (Microsoft 365), Anzeigen als, Erinnerung, Kategorien |
 | **Regeln** | „Regeln und Benachrichtigungen“: Bedingung (Absender, Betreff, Empfänger, Text enthält) → Aktion (verschieben, als gelesen markieren, kennzeichnen, Kategorie, löschen); gelten für neue Nachrichten nach jedem Senden/Empfangen, „Regeln jetzt anwenden“ für den ganzen Posteingang |
 | **Automatische Antworten** | Abwesenheitsnotiz mit Zeitraum; Microsoft 365 mit getrennten Texten für intern/extern, IMAP-Konten über ManageSieve (Sieve „vacation“, z. B. Dovecot/Pigeonhole, Cyrus, mailbox.org, Posteo) |
 | **Erinnerungen** | Erinnerungsfenster mit „Alle schließen“, „Element öffnen“, „Schließen“ und „Erneut erinnern“ |
@@ -118,6 +118,7 @@ src/
     notes.rs         Notizen + Journal             html.rs      HTML-Anzeige, Editor-Formatierung
     rules_ui.rs      Regeln-Fenster                quicksteps.rs QuickSteps
     groups.rs        Kontaktgruppen                todobar.rs   To-Do-Leiste
+    scheduling.rs    Terminplanungs-Assistent
     icons.rs         Fluent-Symbole (erzeugt von tools/gen_icons.py)
     backstage.rs     Datei-Backstage, Optionen, „Konto hinzufügen“, automatische Antworten
   providers/         imap.rs (IMAP/SMTP), graph.rs (Microsoft Graph), sieve.rs (ManageSieve), mod.rs (Verteilung)
@@ -143,6 +144,7 @@ IMAP-Kennwörter und Microsoft-Tokens werden im Schlüsselbund des Betriebssyste
 * Pro Ordner werden die neuesten 100 Nachrichten zwischengespeichert.
 * Besprechungsantworten gibt es nur für Microsoft-365-Konten. Abwesenheitsnotizen für IMAP brauchen einen Server mit ManageSieve (Port 4190); der Zeitraum gilt dort tagesgenau.
 * Kontaktgruppen werden lokal gespeichert.
+* Frei/Gebucht-Zeiten anderer Personen liefert nur Microsoft 365; bei IMAP-Konten zeigt der Terminplanungs-Assistent nur den eigenen Kalender.
 * Regeln laufen im Client (wie Outlooks „nur auf diesem Computer“-Regeln), also nur, wenn MailCraft geöffnet ist.
 * Öffentliche Ordner von Exchange sind über Microsoft Graph nicht zugänglich (Microsoft bietet dafür keine Graph-Schnittstelle); öffentliche IMAP-Ordner werden angezeigt.
 * Notizen und Journal werden lokal gespeichert (Microsoft Graph bietet keine Schnittstelle für Outlook-Notizen und -Journal).
