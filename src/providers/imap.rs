@@ -27,7 +27,7 @@ fn extra_ca_pem() -> Option<Vec<u8>> {
     std::env::var_os("MAILCRAFT_CA_FILE").and_then(|p| std::fs::read(p).ok())
 }
 
-fn roots() -> Result<rustls::RootCertStore> {
+pub(super) fn roots() -> Result<rustls::RootCertStore> {
     use rustls::pki_types::{pem::PemObject, CertificateDer};
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());

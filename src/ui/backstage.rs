@@ -337,8 +337,8 @@ impl App {
         });
 
         let auto_text = match acc.kind {
-            AccountKind::Graph => "Benachrichtigen Sie andere, dass Sie nicht im Büro sind, sich im Urlaub befinden oder nicht für E-Mails zur Verfügung stehen.",
-            _ => "Für dieses Konto nicht verfügbar – Abwesenheitsnotizen für IMAP-Konten werden im Webmail des Anbieters eingerichtet.",
+            AccountKind::Local => "Für das lokale Postfach nicht verfügbar.",
+            _ => "Benachrichtigen Sie andere, dass Sie nicht im Büro sind, sich im Urlaub befinden oder nicht für E-Mails zur Verfügung stehen.",
         };
         let r = section(
             ui,
@@ -347,7 +347,7 @@ impl App {
             "Automatische Antworten (Abwesend)",
             auto_text,
         );
-        if r.clicked() && acc.kind == AccountKind::Graph {
+        if r.clicked() && acc.kind != AccountKind::Local {
             self.open_auto_reply(acc.id);
         }
 
@@ -814,9 +814,14 @@ impl App {
 
 impl App {
     fn open_auto_reply(&mut self, account_id: i64) {
-        self.open_window(Win::AutoReply(AutoReplyWin::new(account_id)));
+        let mut w = AutoReplyWin::new(account_id);
+        w.imap = self
+            .data
+            .account(account_id)
+            .is_some_and(|a| a.kind == AccountKind::Imap);
+        self.open_window(Win::AutoReply(w));
         self.spawn(None, move |st, tx| async move {
-            let data = providers::graph::get_auto_reply(&st, account_id).await?;
+            let data = providers::get_auto_reply(&st, account_id).await?;
             let _ = tx.send(super::Done::AutoReply(account_id, data));
             Ok(())
         });
@@ -911,11 +916,18 @@ impl App {
                         });
                     });
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Innerhalb meiner Organisation").strong());
-                    ui.add(egui::TextEdit::multiline(&mut a.data.internal).desired_rows(6).desired_width(f32::INFINITY));
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("Außerhalb meiner Organisation (leer = keine Antwort nach außen)").strong());
-                    ui.add(egui::TextEdit::multiline(&mut a.data.external).desired_rows(6).desired_width(f32::INFINITY));
+                    if a.imap {
+                        // Sieve knows no organisation boundary and works per day.
+                        ui.label(RichText::new("Antworttext").strong());
+                        ui.add(egui::TextEdit::multiline(&mut a.data.internal).desired_rows(8).desired_width(f32::INFINITY));
+                        ui.label(RichText::new("Der Zeitraum gilt tageweise; jeder Absender erhält höchstens eine Antwort pro Tag.").size(12.0).color(t.text_weak));
+                    } else {
+                        ui.label(RichText::new("Innerhalb meiner Organisation").strong());
+                        ui.add(egui::TextEdit::multiline(&mut a.data.internal).desired_rows(6).desired_width(f32::INFINITY));
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("Außerhalb meiner Organisation (leer = keine Antwort nach außen)").strong());
+                        ui.add(egui::TextEdit::multiline(&mut a.data.external).desired_rows(6).desired_width(f32::INFINITY));
+                    }
                 });
             });
             },
@@ -936,7 +948,7 @@ impl App {
             let id = a.account_id;
             self.spawn(
                 Some("Automatische Antworten gespeichert."),
-                move |st, _| async move { providers::graph::set_auto_reply(&st, id, &data).await },
+                move |st, _| async move { providers::set_auto_reply(&st, id, &data).await },
             );
             return true;
         }
@@ -946,6 +958,8 @@ impl App {
 
 pub struct AutoReplyWin {
     pub account_id: i64,
+    /// IMAP account (ManageSieve): one text, whole days.
+    imap: bool,
     opened: Instant,
     loading: bool,
     data: providers::graph::AutoReply,
@@ -959,6 +973,7 @@ impl AutoReplyWin {
         let today = super::today();
         Self {
             account_id,
+            imap: false,
             opened: Instant::now(),
             loading: true,
             data: Default::default(),

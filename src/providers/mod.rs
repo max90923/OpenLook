@@ -6,6 +6,7 @@ pub mod graph;
 #[cfg(test)]
 mod graph_mock;
 pub mod imap;
+pub mod sieve;
 
 use anyhow::{anyhow, bail, Result};
 
@@ -410,6 +411,31 @@ pub async fn send_due(state: &AppState) -> Result<usize> {
         sent += 1;
     }
     Ok(sent)
+}
+
+// ---------------------------------------------------------------- automatic replies
+
+fn imap_config(state: &AppState, account_id: i64) -> Result<ImapConfig> {
+    Ok(serde_json::from_str(&crate::secrets::config(
+        state, account_id,
+    )?)?)
+}
+
+/// Automatic replies: Microsoft 365 mailbox settings or ManageSieve (IMAP).
+pub async fn get_auto_reply(state: &AppState, account_id: i64) -> Result<graph::AutoReply> {
+    match kind_of(state, account_id)? {
+        AccountKind::Graph => graph::get_auto_reply(state, account_id).await,
+        AccountKind::Imap => sieve::get(&imap_config(state, account_id)?).await,
+        AccountKind::Local => bail!("Das lokale Postfach empfängt keine E-Mails"),
+    }
+}
+
+pub async fn set_auto_reply(state: &AppState, account_id: i64, a: &graph::AutoReply) -> Result<()> {
+    match kind_of(state, account_id)? {
+        AccountKind::Graph => graph::set_auto_reply(state, account_id, a).await,
+        AccountKind::Imap => sieve::set(&imap_config(state, account_id)?, a).await,
+        AccountKind::Local => bail!("Das lokale Postfach empfängt keine E-Mails"),
+    }
 }
 
 // ---------------------------------------------------------------- folders
@@ -964,6 +990,76 @@ mod it {
             .unwrap()
             .iter()
             .any(|f| f.name.starts_with("Kunden-")));
+
+        // Automatic replies via ManageSieve.
+        let ar = crate::providers::graph::AutoReply {
+            enabled: true,
+            internal: format!("Bin bis Montag weg ({tag})."),
+            ..Default::default()
+        };
+        set_auto_reply(&state, acc, &ar).await.unwrap();
+        let back = get_auto_reply(&state, acc).await.unwrap();
+        assert!(back.enabled);
+        assert_eq!(back.internal, ar.internal);
+        if let (Ok(user2), Ok(pass2), Ok(addr2)) = (
+            std::env::var("MAILCRAFT_IT_USER2"),
+            std::env::var("MAILCRAFT_IT_PASSWORD2"),
+            std::env::var("MAILCRAFT_IT_ADDRESS2"),
+        ) {
+            // A colleague writes to us and receives the automatic reply.
+            let cfg2 = ImapConfig {
+                username: user2,
+                password: pass2,
+                ..cfg.clone()
+            };
+            let acc2 = db::insert_account(
+                &state.db(),
+                AccountKind::Imap,
+                "Kollege",
+                &addr2,
+                &serde_json::to_string(&cfg2).unwrap(),
+            )
+            .unwrap();
+            sync(&state, acc2).await.unwrap();
+            send(
+                &state,
+                &OutgoingMail {
+                    account_id: acc2,
+                    to: address.clone(),
+                    subject: format!("Frage {tag}"),
+                    body_html: "Hallo?".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            let inbox2: Vec<MessageSummary> = {
+                let mut found = vec![];
+                for _ in 0..20 {
+                    sync(&state, acc2).await.unwrap();
+                    let f = folder(&state, acc2, "inbox").await;
+                    found = messages(&state, f.id);
+                    if found
+                        .iter()
+                        .any(|m| m.subject.contains("Automatische Antwort"))
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                found
+            };
+            let reply = inbox2
+                .iter()
+                .find(|m| m.subject.contains("Automatische Antwort"))
+                .expect("keine automatische Antwort erhalten");
+            let full = db::get_message(&state.db(), reply.id).unwrap().unwrap();
+            assert!(full.body_text.contains(&tag), "{}", full.body_text);
+        }
+        set_auto_reply(&state, acc, &crate::providers::graph::AutoReply::default())
+            .await
+            .unwrap();
+        assert!(!get_auto_reply(&state, acc).await.unwrap().enabled);
 
         // Rules act on new mail after send/receive.
         let archive = folder(&state, acc, "archive").await;
