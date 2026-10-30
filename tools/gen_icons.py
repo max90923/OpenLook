@@ -1,155 +1,152 @@
 #!/usr/bin/env python3
-"""Copy the Fluent UI System Icons (MIT, Microsoft) used by OpenLook into
-assets/icons and generate src/ui/icons.rs.
+"""Generate assets/icons and src/ui/icons.rs from System UIcons
+(https://github.com/CoreyGinnivan/system-uicons, Unlicense - public domain).
 
-Usage: tools/gen_icons.py <path to @fluentui/svg-icons package>/icons
-Colour icons are taken as they are; single-colour icons get the Outlook
-accent colour given below.
+Usage: tools/gen_icons.py <path to @iconify-json/system-uicons>/icons.json
+Every icon is drawn as a line icon in the given Outlook accent colour;
+"name:filled" also fills the shape.
 """
-import os, sys
+import json, os, sys
 
-SRC = sys.argv[1]
+ICONS = json.load(open(sys.argv[1], encoding="utf-8"))["icons"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "assets", "icons")
 
 BLUE, PURPLE, RED, YELLOW, GREEN, GREY = "#0F6CBD", "#8764B8", "#C4314B", "#E8A33D", "#107C10", "#616161"
 
-# phosphor constant (used throughout the UI code) -> (fluent icon, colour for regular icons)
+# Reply arrows drawn for OpenLook (public domain like the rest).
+ARROW = '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="{}"/>'
+CUSTOM = {
+    "reply": ARROW.format("M8.5 5.5l-5 5l5 5m-5-5h8a6 6 0 0 1 6 6v1"),
+    "reply-all": ARROW.format("M10.5 5.5l-5 5l5 5m-5-5h6a6 6 0 0 1 6 6v1M6.5 5.5l-5 5l5 5"),
+    "forward": ARROW.format("M12.5 5.5l5 5l-5 5m5-5h-8a6 6 0 0 0-6 6v1"),
+}
+
+# phosphor constant (used throughout the UI code) -> (System UIcons name, colour)
 MAP = [
-    ("ENVELOPE_SIMPLE", "mail", None),
-    ("ENVELOPE_SIMPLE_OPEN", "mail_read", BLUE),
-    ("FILE_PLUS", "document_add", None),
-    ("X", "delete", GREY),
-    ("TRASH", "delete", GREY),
-    ("X_CIRCLE", "dismiss", RED),
-    ("FLAG_BANNER", "flag", GREY),
-    ("PAPERCLIP_HORIZONTAL", "attach", GREY),
-    ("ARCHIVE", "archive", GREY),
-    ("PROHIBIT", "mail_prohibited", RED),
-    ("TRAY", "mail_inbox", BLUE),
-    ("ARROW_BEND_UP_LEFT", "arrow_reply", PURPLE),
-    ("ARROW_BEND_DOUBLE_UP_LEFT", "arrow_reply_all", PURPLE),
-    ("ARROW_BEND_UP_RIGHT", "arrow_forward", PURPLE),
-    ("FOLDER_SIMPLE", "folder_arrow_right", YELLOW),
-    ("FOLDER_PLUS", "folder_add", YELLOW),
-    ("FOLDER_MINUS", "folder_prohibited", RED),
-    ("FOLDER_OPEN", "folder_open", YELLOW),
-    ("FUNNEL_SIMPLE", "filter", BLUE),
-    ("FUNNEL", "filter", BLUE),
-    ("PRINTER", "print", GREY),
-    ("TAG", "tag_multiple", PURPLE),
+    ("ENVELOPE_SIMPLE", "mail", BLUE),
+    ("ENVELOPE_SIMPLE_OPEN", "mail-open", BLUE),
+    ("FILE_PLUS", "create", BLUE),
+    ("X", "trash", GREY),
+    ("TRASH", "trash", GREY),
+    ("X_CIRCLE", "cross", RED),
     ("FLAG", "flag:filled", RED),
-    ("PUSH_PIN", "pin", None),
-    ("ADDRESS_BOOK", "book_contacts", None),
-    ("CALENDAR_PLUS", "calendar", None),
-    ("CALENDAR_BLANK", "calendar_month", BLUE),
-    ("CALENDAR_CHECK", "calendar_checkmark", None),
-    ("CALENDAR_DOTS", "calendar_week_numbers", BLUE),
-    ("GRID_FOUR", "calendar_person", BLUE),
-    ("USERS_THREE", "calendar_people", None),
-    ("SQUARE", "calendar_day", BLUE),
-    ("COLUMNS", "calendar_work_week", BLUE),
-    ("SQUARES_FOUR", "calendar_week_start", BLUE),
-    ("USER_PLUS", "person_add", None),
-    ("USER", "person", None),
-    ("USERS", "people", None),
-    ("USERS_FOUR", "people_add", None),
-    ("USER_MINUS", "person_delete", RED),
-    ("USER_CIRCLE", "person", None),
-    ("USER_CHECK", "person_available", None),
-    ("IDENTIFICATION_CARD", "contact_card", None),
-    ("LIST", "text_bullet_list_ltr", BLUE),
-    ("LIST_CHECKS", "clipboard_task", None),
-    ("STAR", "star", None),
-    ("CHECK_SQUARE_OFFSET", "clipboard_task", None),
-    ("CHECK", "checkmark_circle", None),
-    ("FLOPPY_DISK", "save", PURPLE),
-    ("REPEAT", "arrow_repeat_all", BLUE),
-    ("CLOCK", "clock", None),
-    ("BELL", "alert", None),
-    ("ARROWS_CLOCKWISE", "arrow_sync", None),
-    ("PENCIL_LINE", "rename", BLUE),
-    ("GEAR", "settings", None),
-    ("PALETTE", "paint_brush", None),
-    ("SIDEBAR", "panel_left", BLUE),
-    ("LAYOUT", "panel_right", BLUE),
-    ("ROWS", "preview_link", BLUE),
-    ("CHATS", "chat_multiple", None),
-    ("MAGNIFYING_GLASS_PLUS", "zoom_in", BLUE),
+    ("FLAG_BANNER", "flag", GREY),
+    ("PAPERCLIP", "paperclip", BLUE),
+    ("PAPERCLIP_HORIZONTAL", "paperclip", GREY),
+    ("ARCHIVE", "archive", GREY),
+    ("PROHIBIT", "no-sign", RED),
+    ("TRAY", "inbox", BLUE),
+    ("ARROW_BEND_UP_LEFT", "reply", PURPLE),
+    ("ARROW_BEND_DOUBLE_UP_LEFT", "reply-all", PURPLE),
+    ("ARROW_BEND_UP_RIGHT", "forward", PURPLE),
+    ("FOLDER_SIMPLE", "folder-closed", YELLOW),
+    ("FOLDER_PLUS", "folder-add", YELLOW),
+    ("FOLDER_MINUS", "folder-minus", RED),
+    ("FOLDER_OPEN", "folder-open", YELLOW),
+    ("FUNNEL_SIMPLE", "filter", BLUE),
+    ("FUNNEL", "funnel", BLUE),
+    ("PRINTER", "printer", GREY),
+    ("TAG", "tags", PURPLE),
+    ("PUSH_PIN", "bookmark", BLUE),
+    ("ADDRESS_BOOK", "contacts", BLUE),
+    ("CALENDAR_PLUS", "calendar-add", BLUE),
+    ("CALENDAR_BLANK", "calendar-month", BLUE),
+    ("CALENDAR_CHECK", "calendar-date", GREEN),
+    ("CALENDAR_DOTS", "calendar-days", BLUE),
+    ("GRID_FOUR", "calendar-split", BLUE),
+    ("SQUARE", "calendar-day", BLUE),
+    ("COLUMNS", "calendar-week", BLUE),
+    ("SQUARES_FOUR", "grid-squares", BLUE),
+    ("USERS_THREE", "users", BLUE),
+    ("USER_PLUS", "user-add", BLUE),
+    ("USER_MINUS", "user-remove", RED),
+    ("USER", "user", BLUE),
+    ("USERS", "users", BLUE),
+    ("USERS_FOUR", "users", PURPLE),
+    ("USER_CIRCLE", "user-circle", BLUE),
+    ("USER_CHECK", "user-male-circle", GREEN),
+    ("IDENTIFICATION_CARD", "postcard", BLUE),
+    ("LIST", "list", BLUE),
+    ("LIST_CHECKS", "todo", BLUE),
+    ("STAR", "star", YELLOW),
+    ("CHECK_SQUARE_OFFSET", "clipboard-check", BLUE),
+    ("CHECK", "check-circle", GREEN),
+    ("FLOPPY_DISK", "floppy", PURPLE),
+    ("REPEAT", "refresh", BLUE),
+    ("CLOCK", "clock", BLUE),
+    ("BELL", "bell", YELLOW),
+    ("ARROWS_CLOCKWISE", "refresh-alt", BLUE),
+    ("PENCIL_LINE", "write", BLUE),
+    ("PENCIL_SIMPLE", "pen", BLUE),
+    ("GEAR", "settings", GREY),
+    ("PALETTE", "sliders", PURPLE),
+    ("SIDEBAR", "panel-left", BLUE),
+    ("LAYOUT", "panel-right", BLUE),
+    ("ROWS", "document-justified", BLUE),
+    ("CHATS", "speech-bubble", BLUE),
+    ("MAGNIFYING_GLASS_PLUS", "zoom-in", BLUE),
     ("KEYBOARD", "keyboard", GREY),
-    ("INFO", "info", BLUE),
-    ("QUESTION", "question_circle", None),
-    ("PAPERCLIP", "attach", BLUE),
-    ("SIGNATURE", "signature", BLUE),
-    ("PAPER_PLANE_RIGHT", "send", None),
-    ("NOTE", "note", YELLOW),
-    ("BOOK_OPEN", "book_open", None),
-    ("TIMER", "timer", GREEN),
-    ("STOP", "record_stop", RED),
-    ("PHONE_CALL", "call", BLUE),
-    ("AIRPLANE_TILT", "mail_clock", None),
-    ("BROOM", "broom", BLUE),
-    ("PLUS", "add", BLUE),
-    ("WARNING", "warning", None),
-    ("GLOBE", "globe", None),
-    ("LIGHTBULB", "lightbulb", None),
-    ("FILE_TEXT", "document_text", None),
-    ("FILE", "document", None),
-    ("FILE_IMAGE", "image", None),
-    ("FILE_PDF", "document_pdf", RED),
-    ("TEXT_B", "text_bold", GREY),
-    ("TEXT_ITALIC", "text_italic", GREY),
-    ("TEXT_UNDERLINE", "text_underline", GREY),
-    ("TEXT_AA", "text_case_title", BLUE),
-    ("LIST_BULLETS", "text_bullet_list_ltr", GREY),
-    ("LIST_NUMBERS", "text_number_list_ltr", GREY),
-    ("ARROWS_DOWN_UP", "arrow_sort", BLUE),
-    ("COPY", "copy", BLUE),
-    ("PENCIL_SIMPLE", "edit", None),
-    ("MICROSOFT_OUTLOOK_LOGO", "mail_multiple", None),
-    ("PLAY", "play_circle", GREEN),
-    ("SIGN_OUT", "sign_out", GREY),
-    ("LIGHTNING", "flash", YELLOW),
+    ("INFO", "info-circle", BLUE),
+    ("QUESTION", "question-circle", BLUE),
+    ("SIGNATURE", "message-writing", BLUE),
+    ("PAPER_PLANE_RIGHT", "paper-plane", BLUE),
+    ("NOTE", "paper-folded", YELLOW),
+    ("BOOK_OPEN", "book-text", BLUE),
+    ("TIMER", "clock", GREEN),
+    ("STOP", "record", RED),
+    ("PHONE_CALL", "phone-portrait", BLUE),
+    ("AIRPLANE_TILT", "alarm-clock", BLUE),
+    ("BROOM", "mail-minus", BLUE),
+    ("PLUS", "plus", BLUE),
+    ("WARNING", "warning-triangle", YELLOW),
+    ("GLOBE", "globe", BLUE),
+    ("LIGHTBULB", "lightbulb-on", YELLOW),
+    ("FILE_TEXT", "document-words", BLUE),
+    ("FILE", "document", GREY),
+    ("FILE_IMAGE", "picture", BLUE),
+    ("FILE_PDF", "document", RED),
+    ("TEXT_AA", "paragraph-left", BLUE),
+    ("LIST_BULLETS", "list", GREY),
+    ("LIST_NUMBERS", "list-numbered", GREY),
+    ("ARROWS_DOWN_UP", "sort", BLUE),
+    ("COPY", "duplicate", BLUE),
+    ("PLAY", "play-button", GREEN),
+    ("SIGN_OUT", "exit-right", GREY),
+    ("LIGHTNING", "lightning", YELLOW),
+    ("MICROSOFT_OUTLOOK_LOGO", "inbox-alt", BLUE),
 ]
 
-def find(base, size, variants):
-    for variant in variants:
-        for s in (size, 24, 20, 32, 28, 16):
-            p = os.path.join(SRC, f"{base}_{s}_{variant}.svg")
-            if os.path.exists(p):
-                return p, variant
-    sys.exit(f"Symbol fehlt: {base}")
 
-os.makedirs(OUT, exist_ok=True)
+def svg(name, colour):
+    name, _, variant = name.partition(":")
+    body = CUSTOM.get(name) or ICONS[name]["body"]
+    if variant == "filled":
+        body = body.replace('fill="none"', 'fill="currentColor"', 1)
+    body = body.replace("currentColor", colour)
+    return f'<svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21" stroke-width="1.25">{body}</svg>'
+
+
+for f in os.listdir(OUT):
+    if f.endswith(".svg"):
+        os.remove(os.path.join(OUT, f))
 rows = []
-for key, base, colour in MAP:
-    # "name:filled" picks a variant; a given colour means the single-colour icon.
-    base, _, want = base.partition(":")
-    variants = (want,) if want else ("regular", "color") if colour else ("color", "regular")
-    files = []
-    for size in (20, 32):
-        path, variant = find(base, size, variants)
-        svg = open(path, encoding="utf-8").read()
-        if variant != "color" and colour:
-            svg = svg.replace("<svg ", f'<svg fill="{colour}" ', 1)
-        name = f"{key.lower()}_{size}.svg"
-        open(os.path.join(OUT, name), "w", encoding="utf-8").write(svg)
-        files.append(name)
-    rows.append((key, files[0], files[1]))
+for key, name, colour in MAP:
+    file = f"{key.lower()}.svg"
+    open(os.path.join(OUT, file), "w", encoding="utf-8").write(svg(name, colour))
+    rows.append((key, file))
 
 with open(os.path.join(ROOT, "src", "ui", "icons.rs"), "w", encoding="utf-8") as f:
-    f.write("//! Generated by tools/gen_icons.py – Fluent UI System Icons (MIT, Microsoft),\n")
+    f.write("//! Generated by tools/gen_icons.py – System UIcons (Unlicense, public domain),\n")
     f.write("//! looked up by the Phosphor glyph the UI code uses.\n\n")
     f.write("use egui_phosphor::regular as ph;\n\n")
-    f.write("/// (glyph, uri small, svg small, uri large, svg large)\n")
-    f.write("type Entry = (&'static str, &'static str, &'static [u8], &'static str, &'static [u8]);\n\n")
-    f.write("static ICONS: &[Entry] = &[\n")
-    for key, small, large in rows:
-        f.write(f'    (ph::{key}, "bytes://icons/{small}", include_bytes!("../../assets/icons/{small}"), '
-                f'"bytes://icons/{large}", include_bytes!("../../assets/icons/{large}")),\n')
+    f.write("/// (glyph, uri, svg)\n")
+    f.write("static ICONS: &[(&str, &str, &[u8])] = &[\n")
+    for key, file in rows:
+        f.write(f'    (ph::{key}, "bytes://icons/{file}", include_bytes!("../../assets/icons/{file}")),\n')
     f.write("];\n\n")
-    f.write("/// SVG for a glyph: (uri, bytes); `large` picks the 32 px drawing.\n")
-    f.write("pub fn svg(glyph: &str, large: bool) -> Option<(&'static str, &'static [u8])> {\n")
-    f.write("    ICONS.iter().find(|e| e.0 == glyph).map(|e| if large { (e.3, e.4) } else { (e.1, e.2) })\n")
+    f.write("/// SVG for a glyph: (uri, bytes). The drawing scales to any size.\n")
+    f.write("pub fn svg(glyph: &str, _large: bool) -> Option<(&'static str, &'static [u8])> {\n")
+    f.write("    ICONS.iter().find(|e| e.0 == glyph).map(|e| (e.1, e.2))\n")
     f.write("}\n")
-print(f"{len(rows)} Symbole erzeugt")
+print(f"{len(rows)} icons generated")
