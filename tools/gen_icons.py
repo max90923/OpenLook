@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy the Fluent UI System Icons (MIT, Microsoft) used by MailCraft into
+"""Copy the Fluent UI System Icons (MIT, Microsoft) used by OpenLook into
 assets/icons and generate src/ui/icons.rs.
 
 Usage: tools/gen_icons.py <path to @fluentui/svg-icons package>/icons

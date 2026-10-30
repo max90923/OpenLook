@@ -1287,8 +1287,7 @@ mod tests {
 
     #[test]
     fn migrates_old_event_table() {
-        let path =
-            std::env::temp_dir().join(format!("mailcraft-migrate-{}.db", std::process::id()));
+        let path = std::env::temp_dir().join(format!("openlook-migrate-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         {
             let c = Connection::open(&path).unwrap();

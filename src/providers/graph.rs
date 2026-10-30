@@ -2,7 +2,7 @@
 //!
 //! Sign-in uses the OAuth 2.0 device code flow, so no redirect URI or client
 //! secret is needed: register a "public client" app in Entra ID (Azure AD)
-//! and pass its client id via `MAILCRAFT_GRAPH_CLIENT_ID`.
+//! and pass its client id via `OPENLOOK_GRAPH_CLIENT_ID`.
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
@@ -18,9 +18,9 @@ const GRAPH: &str = "https://graph.microsoft.com/v1.0";
 pub const SCOPES: &str = "offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite \
                           Mail.ReadWrite.Shared Mail.Send.Shared Calendars.ReadWrite.Shared Contacts.ReadWrite.Shared MailboxSettings.ReadWrite";
 
-/// Graph endpoint, overridable with `MAILCRAFT_GRAPH_URL` (national clouds, tests).
+/// Graph endpoint, overridable with `OPENLOOK_GRAPH_URL` (national clouds, tests).
 fn graph_url() -> String {
-    std::env::var("MAILCRAFT_GRAPH_URL").unwrap_or_else(|_| GRAPH.to_string())
+    std::env::var("OPENLOOK_GRAPH_URL").unwrap_or_else(|_| GRAPH.to_string())
 }
 
 /// Account whose tokens are used, and the shared mailbox address if the
@@ -85,7 +85,7 @@ fn client_id(state: &AppState) -> Result<&str> {
     state
         .graph_client_id
         .as_deref()
-        .ok_or_else(|| anyhow!("MAILCRAFT_GRAPH_CLIENT_ID ist nicht gesetzt (siehe README)"))
+        .ok_or_else(|| anyhow!("OPENLOOK_GRAPH_CLIENT_ID ist nicht gesetzt (siehe README)"))
 }
 
 // ---------------------------------------------------------------- device code flow

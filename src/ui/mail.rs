@@ -317,7 +317,7 @@ impl App {
                     let m = db::get_message(&self.st.db(), id).ok().flatten();
                     if let Some(m) = m {
                         let path =
-                            std::env::temp_dir().join(format!("mailcraft-{}.html", m.summary.id));
+                            std::env::temp_dir().join(format!("openlook-{}.html", m.summary.id));
                         let html = format!(
                             "<!doctype html><meta charset=\"utf-8\"><title>{}</title>{}",
                             crate::mail::escape_html(&m.summary.subject),
@@ -331,8 +331,8 @@ impl App {
                 }
                 Act::OpenAttachment(a) => {
                     let res = db::attachment_data(&self.st.db(), a.id).and_then(|data| {
-                        let dir = std::env::temp_dir()
-                            .join(format!("mailcraft-anlagen-{}", a.message_id));
+                        let dir =
+                            std::env::temp_dir().join(format!("openlook-anlagen-{}", a.message_id));
                         std::fs::create_dir_all(&dir)?;
                         let path = dir.join(safe_file_name(&a.name));
                         std::fs::write(&path, data)?;
@@ -1404,7 +1404,7 @@ impl App {
         let title = match d {
             FolderDialog::New { .. } => "Neuen Ordner erstellen",
             FolderDialog::Rename { .. } => "Ordner umbenennen",
-            FolderDialog::Delete { .. } => "MailCraft",
+            FolderDialog::Delete { .. } => "OpenLook",
         };
         egui::Window::new(title)
             .open(&mut open)
@@ -1500,7 +1500,7 @@ impl App {
             imp = if m.summary.importance == "high" { row("Wichtigkeit", "Hoch") } else { String::new() },
             body = if m.body_html.trim().is_empty() { crate::mail::text_to_html(&m.body_text) } else { m.body_html.clone() },
         );
-        let path = std::env::temp_dir().join(format!("mailcraft-druck-{id}.html"));
+        let path = std::env::temp_dir().join(format!("openlook-druck-{id}.html"));
         match std::fs::write(&path, html) {
             Ok(()) => super::open_external(&path.to_string_lossy()),
             Err(e) => self.toast(format!("Drucken fehlgeschlagen: {e}"), true),

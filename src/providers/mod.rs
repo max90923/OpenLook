@@ -858,8 +858,8 @@ mod tests {
 }
 
 /// End-to-end test against a real IMAP/SMTP server. Needs the environment
-/// variables `MAILCRAFT_IT_HOST`, `MAILCRAFT_IT_USER`, `MAILCRAFT_IT_PASSWORD`,
-/// `MAILCRAFT_IT_ADDRESS` (and `MAILCRAFT_CA_FILE` for a private CA). Run with
+/// variables `OPENLOOK_IT_HOST`, `OPENLOOK_IT_USER`, `OPENLOOK_IT_PASSWORD`,
+/// `OPENLOOK_IT_ADDRESS` (and `OPENLOOK_CA_FILE` for a private CA). Run with
 /// `cargo test -- --ignored imap_end_to_end`.
 #[cfg(test)]
 mod it {
@@ -909,14 +909,14 @@ mod it {
     async fn imap_end_to_end() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let state = AppState::in_memory();
-        let address = env("MAILCRAFT_IT_ADDRESS");
+        let address = env("OPENLOOK_IT_ADDRESS");
         let cfg = ImapConfig {
-            imap_host: env("MAILCRAFT_IT_HOST"),
+            imap_host: env("OPENLOOK_IT_HOST"),
             imap_port: 993,
-            smtp_host: env("MAILCRAFT_IT_HOST"),
+            smtp_host: env("OPENLOOK_IT_HOST"),
             smtp_port: 587,
-            username: env("MAILCRAFT_IT_USER"),
-            password: env("MAILCRAFT_IT_PASSWORD"),
+            username: env("OPENLOOK_IT_USER"),
+            password: env("OPENLOOK_IT_PASSWORD"),
         };
         imap::test_login(&cfg).await.unwrap();
         let acc = db::insert_account(
@@ -1013,7 +1013,7 @@ mod it {
         );
         delete_folder(&state, tree[ppos + 1].id).await.unwrap();
         // Public/shared IMAP namespaces are listed like other folders.
-        if let Ok(public) = std::env::var("MAILCRAFT_IT_PUBLIC_FOLDER") {
+        if let Ok(public) = std::env::var("OPENLOOK_IT_PUBLIC_FOLDER") {
             let f = tree
                 .iter()
                 .find(|f| f.remote_id == public)
@@ -1063,9 +1063,9 @@ mod it {
         assert!(back.enabled);
         assert_eq!(back.internal, ar.internal);
         if let (Ok(user2), Ok(pass2), Ok(addr2)) = (
-            std::env::var("MAILCRAFT_IT_USER2"),
-            std::env::var("MAILCRAFT_IT_PASSWORD2"),
-            std::env::var("MAILCRAFT_IT_ADDRESS2"),
+            std::env::var("OPENLOOK_IT_USER2"),
+            std::env::var("OPENLOOK_IT_PASSWORD2"),
+            std::env::var("OPENLOOK_IT_ADDRESS2"),
         ) {
             // A colleague writes to us and receives the automatic reply.
             let cfg2 = ImapConfig {

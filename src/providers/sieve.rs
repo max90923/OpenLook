@@ -15,10 +15,10 @@ use tokio_rustls::{rustls, TlsConnector};
 use crate::{models::ImapConfig, providers::graph::AutoReply};
 
 pub const PORT: u16 = 4190;
-const SCRIPT: &str = "mailcraft";
+const SCRIPT: &str = "openlook";
 /// First line of the generated script carries the settings as JSON so they
 /// can be shown again exactly as entered.
-const MARKER: &str = "# mailcraft:";
+const MARKER: &str = "# openlook:";
 
 struct Conn<S> {
     io: BufReader<S>,

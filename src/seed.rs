@@ -18,7 +18,7 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
         c,
         AccountKind::Local,
         "Lokales Postfach",
-        "ich@mailcraft.local",
+        "ich@openlook.local",
         "{}",
     )?;
     let mut ids = std::collections::HashMap::new();
@@ -36,7 +36,7 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
     let now = Utc::now();
     let fmt = |d: chrono::DateTime<Utc>| d.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let mails = [
-        ("Willkommen bei MailCraft", "MailCraft Team", "team@mailcraft.local", 0, false, true,
+        ("Willkommen bei OpenLook", "OpenLook Team", "team@openlook.local", 0, false, true,
          "<h2>Willkommen!</h2><p>Dies ist dein lokales Postfach. Verbinde ein echtes Konto über <b>Datei &gt; Konto hinzufügen</b>:</p><ul><li><b>Microsoft 365 / Outlook.com</b> über Microsoft Graph</li><li><b>Jedes IMAP/SMTP-Konto</b> (Gmail, GMX, web.de, Posteo …)</li></ul><p>Tastenkombinationen wie in Outlook: <code>Strg+N</code> neue E-Mail, <code>Strg+R</code> antworten, <code>Strg+F</code> weiterleiten, <code>Entf</code> löschen, <code>Strg+Q</code> als gelesen markieren, <code>Strg+E</code> suchen, <code>F9</code> Senden/Empfangen.</p>"),
         ("Projekt-Kickoff am Donnerstag", "Anna Schmidt", "anna.schmidt@example.com", 2, true, false,
          "<p>Hallo,</p><p>anbei die Agenda für den Kickoff. Bitte bringt eure Fragen mit.</p><p>Viele Grüße<br>Anna</p>"),
@@ -60,7 +60,7 @@ pub fn ensure_local_account(c: &Connection) -> Result<()> {
                 subject: subject.into(),
                 from_name: from_name.into(),
                 from_addr: from_addr.into(),
-                to: "ich@mailcraft.local".into(),
+                to: "ich@openlook.local".into(),
                 date: fmt(now - Duration::hours(hours_ago)),
                 preview: mail::make_preview(&text),
                 body_html: html.into(),

@@ -21,10 +21,10 @@ fn config(state: &AppState, account_id: i64) -> Result<ImapConfig> {
     serde_json::from_str(&raw).context("IMAP-Konfiguration ungültig")
 }
 
-/// Extra trusted CA certificates (PEM) from `MAILCRAFT_CA_FILE`, e.g. for
+/// Extra trusted CA certificates (PEM) from `OPENLOOK_CA_FILE`, e.g. for
 /// company mail servers with an internal certificate authority.
 fn extra_ca_pem() -> Option<Vec<u8>> {
-    std::env::var_os("MAILCRAFT_CA_FILE").and_then(|p| std::fs::read(p).ok())
+    std::env::var_os("OPENLOOK_CA_FILE").and_then(|p| std::fs::read(p).ok())
 }
 
 pub(super) fn roots() -> Result<rustls::RootCertStore> {
@@ -33,7 +33,7 @@ pub(super) fn roots() -> Result<rustls::RootCertStore> {
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     if let Some(pem) = extra_ca_pem() {
         for cert in CertificateDer::pem_slice_iter(&pem) {
-            roots.add(cert.context("MAILCRAFT_CA_FILE enthält kein gültiges Zertifikat")?)?;
+            roots.add(cert.context("OPENLOOK_CA_FILE enthält kein gültiges Zertifikat")?)?;
         }
     }
     Ok(roots)

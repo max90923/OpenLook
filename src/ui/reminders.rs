@@ -93,7 +93,7 @@ impl App {
         let r = &mut self.reminders;
         let closed = chrome::native_window(
             ctx,
-            egui::ViewportId::from_hash_of("mailcraft-reminders"),
+            egui::ViewportId::from_hash_of("openlook-reminders"),
             &title,
             [520.0, 380.0],
             &t,

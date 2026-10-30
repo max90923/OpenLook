@@ -1,6 +1,6 @@
 //! Tests of the Microsoft Graph provider against a local mock of the Graph
 //! REST API. Responses follow the shapes documented by Microsoft; every
-//! request is recorded so the payloads MailCraft sends can be checked.
+//! request is recorded so the payloads OpenLook sends can be checked.
 
 use std::sync::{Arc, Mutex};
 
@@ -181,7 +181,7 @@ async fn microsoft_365_against_mock_graph() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    std::env::set_var("MAILCRAFT_GRAPH_URL", format!("http://{addr}"));
+    std::env::set_var("OPENLOOK_GRAPH_URL", format!("http://{addr}"));
 
     let state = AppState::in_memory();
     let cfg = GraphConfig {

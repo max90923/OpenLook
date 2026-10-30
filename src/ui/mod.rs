@@ -353,9 +353,9 @@ impl App {
         });
     }
 
-    /// Background "Senden/Empfangen" every `MAILCRAFT_SYNC_MINUTES` (default 5).
+    /// Background "Senden/Empfangen" every `OPENLOOK_SYNC_MINUTES` (default 5).
     fn start_background_sync(&mut self) {
-        let minutes: u64 = std::env::var("MAILCRAFT_SYNC_MINUTES")
+        let minutes: u64 = std::env::var("OPENLOOK_SYNC_MINUTES")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(5);
@@ -578,7 +578,7 @@ impl App {
             Module::Notes => "Notizen".into(),
             Module::Journal => "Journal".into(),
         };
-        format!("{place} - MailCraft")
+        format!("{place} - OpenLook")
     }
 
     // ------------------------------------------------------------ chrome
@@ -840,7 +840,7 @@ impl App {
                     });
                     let r = chrome::large(ui, &t, ph::INFO, IC_BLUE, "Info", true);
                     chrome::menu(&r, |ui| {
-                        ui.label(RichText::new("MailCraft").size(18.0).strong());
+                        ui.label(RichText::new("OpenLook").size(18.0).strong());
                         ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                         ui.label("E-Mail, Kalender, Personen und Aufgaben –\nIMAP/SMTP und Microsoft 365.");
                     });
@@ -1103,7 +1103,7 @@ impl App {
         let mut windows = std::mem::take(&mut self.windows);
         let mut closed = vec![];
         for w in &mut windows {
-            let vid = egui::ViewportId::from_hash_of(("mailcraft-window", w.id));
+            let vid = egui::ViewportId::from_hash_of(("openlook-window", w.id));
             let close = match &mut w.win {
                 Win::Compose(c) => self.compose_window(ctx, vid, w.id, c),
                 Win::Event(e) => self.event_window(ctx, vid, e),

@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::{db, state::AppState};
 
-const SERVICE: &str = "MailCraft";
+const SERVICE: &str = "OpenLook";
 /// Secret fields inside an account's config JSON.
 const FIELDS: [&str; 3] = ["password", "refresh_token", "access_token"];
 

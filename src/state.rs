@@ -17,7 +17,7 @@ impl AppState {
         Self {
             db: Mutex::new(db),
             http: reqwest::Client::builder()
-                .user_agent(concat!("MailCraft/", env!("CARGO_PKG_VERSION")))
+                .user_agent(concat!("OpenLook/", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("HTTP-Client"),
             graph_client_id,

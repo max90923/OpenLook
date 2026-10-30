@@ -107,7 +107,7 @@ impl App {
                 if item(ui, "Optionen", false) {
                     self.open_options();
                 }
-                if item(ui, "Info zu MailCraft", page == Page::About) {
+                if item(ui, "Info zu OpenLook", page == Page::About) {
                     self.backstage = Some(Page::About);
                 }
                 if item(ui, "Beenden", false) {
@@ -118,12 +118,12 @@ impl App {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match page {
                 Page::Info => self.account_info(ui),
                 Page::About => {
-                    ui.label(RichText::new("Info zu MailCraft").size(34.0).color(t.text));
+                    ui.label(RichText::new("Info zu OpenLook").size(34.0).color(t.text));
                     ui.add_space(16.0);
-                    ui.label(format!("MailCraft {}", env!("CARGO_PKG_VERSION")));
+                    ui.label(format!("OpenLook {}", env!("CARGO_PKG_VERSION")));
                     ui.label("E-Mail, Kalender, Personen und Aufgaben für IMAP/SMTP und Microsoft 365.");
                     ui.add_space(8.0);
-                    ui.label(RichText::new(format!("Datenbank: {}", std::env::var("MAILCRAFT_DB").unwrap_or_else(|_| "Standard-Datenverzeichnis".into()))).color(t.text_weak));
+                    ui.label(RichText::new(format!("Datenbank: {}", std::env::var("OPENLOOK_DB").unwrap_or_else(|_| "Standard-Datenverzeichnis".into()))).color(t.text_weak));
                 }
             });
         });
@@ -411,7 +411,7 @@ impl App {
         let closed = chrome::native_window(
             ctx,
             vid,
-            "MailCraft-Optionen",
+            "OpenLook-Optionen",
             [860.0, 600.0],
             &t,
             |ui| {
@@ -476,7 +476,7 @@ impl App {
                 };
                 match o.cat {
                     0 => {
-                        heading(ui, "MailCraft personalisieren");
+                        heading(ui, "OpenLook personalisieren");
                         ui.horizontal(|ui| {
                             ui.label("Design:");
                             egui::ComboBox::from_id_salt("opt_design").selected_text(if o.design == Design::Bunt { "Bunt" } else { "Schwarz" }).show_ui(ui, |ui| {
@@ -519,12 +519,12 @@ impl App {
                     }
                     _ => {
                         heading(ui, "Senden und Empfangen");
-                        let minutes = std::env::var("MAILCRAFT_SYNC_MINUTES").unwrap_or_else(|_| "5".into());
-                        ui.label(format!("Automatisches Senden/Empfangen alle {minutes} Minuten (Umgebungsvariable MAILCRAFT_SYNC_MINUTES)."));
+                        let minutes = std::env::var("OPENLOOK_SYNC_MINUTES").unwrap_or_else(|_| "5".into());
+                        ui.label(format!("Automatisches Senden/Empfangen alle {minutes} Minuten (Umgebungsvariable OPENLOOK_SYNC_MINUTES)."));
                         heading(ui, "Microsoft 365");
                         match &self.st.graph_client_id {
                             Some(id) => ui.label(format!("Anwendungs-ID: {id}")),
-                            None => ui.label("Für die Microsoft-Anmeldung die Umgebungsvariable MAILCRAFT_GRAPH_CLIENT_ID setzen (siehe README)."),
+                            None => ui.label("Für die Microsoft-Anmeldung die Umgebungsvariable OPENLOOK_GRAPH_CLIENT_ID setzen (siehe README)."),
                         };
                     }
                 }
@@ -608,7 +608,7 @@ impl App {
                 egui::Frame::new().inner_margin(egui::Margin { left: 40, right: 40, top: 30, bottom: 20 }).show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.label(RichText::new(ph::ENVELOPE_SIMPLE).size(44.0).color(IC_BLUE));
-                    ui.label(RichText::new("MailCraft").size(26.0));
+                    ui.label(RichText::new("OpenLook").size(26.0));
                 });
                 ui.add_space(20.0);
                 if a.done {
@@ -705,7 +705,7 @@ impl App {
                         });
                         if !graph_enabled {
                             ui.add_space(8.0);
-                            ui.label(RichText::new("Microsoft 365 / Outlook.com: zuerst MAILCRAFT_GRAPH_CLIENT_ID setzen (siehe README).").color(t.text_weak));
+                            ui.label(RichText::new("Microsoft 365 / Outlook.com: zuerst OPENLOOK_GRAPH_CLIENT_ID setzen (siehe README).").color(t.text_weak));
                         }
                         ui.add_space(14.0);
                         if ui.button("Zurück").clicked() {

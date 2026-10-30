@@ -1,10 +1,50 @@
-# MailCraft
+<div align="center">
 
-Ein nativer Desktop-Client für E-Mail, Kalender, Kontakte und Aufgaben – aufgebaut wie das **klassische Outlook** (2016/2019/365) und als **ein einziges Rust-Programm**: kein Server, kein Browser, eigene Fenster.
+# OpenLook
 
-## Oberfläche
+**Der freie Desktop-Client für E-Mail, Kalender, Kontakte und Aufgaben – so bedienbar wie das klassische Outlook.**
 
-* **Eigene Titelleiste** mit Symbolleiste für den Schnellzugriff (Senden/Empfangen, Menüband ein/aus), Fenstertitel „Posteingang - konto - MailCraft“, Minimieren/Maximieren/Schließen.
+Ein einziges natives Programm in Rust · kein Server · kein Browser · Open Source (MIT)
+
+![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)
+![Lizenz: MIT](https://img.shields.io/badge/Lizenz-MIT-blue)
+![Plattformen](https://img.shields.io/badge/Windows%20%C2%B7%20Linux-lightgrey)
+![IMAP · SMTP · Microsoft 365](https://img.shields.io/badge/IMAP%20%C2%B7%20SMTP%20%C2%B7%20Microsoft%20365-0078D4)
+
+<img src="docs/screenshots/mail.png" alt="OpenLook – E-Mail mit Ordnerbereich, Nachrichtenliste und Lesebereich" width="100%">
+
+</div>
+
+## Warum OpenLook?
+
+* **Vertraut ab der ersten Minute** – Menüband, Ordnerbereich, Nachrichtenliste, Lesebereich, Backstage, eigene Fenster für Nachrichten und Termine, dieselben Tastenkürzel (`Strg+N`, `Strg+R`, `F9` …) wie im klassischen Outlook.
+* **Alles in einem Programm** – E-Mail, Kalender mit Terminplanungs-Assistent, Personen mit Kontaktgruppen, Aufgaben, Notizen und Journal.
+* **Jedes Postfach** – IMAP/SMTP (Gmail, GMX, WEB.DE, T-Online, Posteo, mailbox.org, iCloud …) und Microsoft 365 / Outlook.com über Microsoft Graph, auch freigegebene Postfächer.
+* **Schnell und sparsam** – eine einzelne ausführbare Datei, lokaler SQLite-Cache, Netzwerkzugriffe im Hintergrund; Kennwörter im Schlüsselbund des Betriebssystems.
+* **Frei** – Quellcode unter MIT-Lizenz, keine Telemetrie, keine Werbung.
+
+## Screenshots
+
+| | |
+|:---:|:---:|
+| <img src="docs/screenshots/kalender.png" alt="Kalender in der Arbeitswochenansicht"><br>**Kalender** – Arbeitswoche, Datumsnavigator, Kategorien | <img src="docs/screenshots/verfassen.png" alt="Nachricht verfassen"><br>**Nachricht verfassen** – eigenes Fenster mit Menüband |
+| <img src="docs/screenshots/terminplanung.png" alt="Terminplanungs-Assistent"><br>**Terminplanungs-Assistent** – Frei/Gebucht und AutoAuswahl | <img src="docs/screenshots/personen.png" alt="Personen"><br>**Personen** – Kontakte, Visitenkarten, Kontaktgruppen |
+| <img src="docs/screenshots/aufgaben.png" alt="Aufgaben"><br>**Aufgaben** – Nachverfolgung und Ansichten | |
+
+## Schnellstart
+
+```sh
+git clone <dieses Repository> openlook && cd openlook
+cargo run --release
+```
+
+OpenLook startet mit einem lokalen Postfach samt Beispieldaten. Ein echtes Konto fügst du über *Datei → Konto hinzufügen* hinzu. Das Ergebnis von `cargo build --release` ist eine einzelne Datei (`target/release/openlook`, unter Windows `openlook.exe`).
+
+## Funktionen im Überblick
+
+### Oberfläche
+
+* **Eigene Titelleiste** mit Symbolleiste für den Schnellzugriff (Senden/Empfangen, Menüband ein/aus), Fenstertitel „Posteingang - konto - OpenLook“, Minimieren/Maximieren/Schließen.
 * **Menüband** mit Registerkarten *Datei · Start · Senden/Empfangen · Ordner · Ansicht · Hilfe*, Gruppen mit großen und kleinen Schaltflächen, Drop-down-Menüs und „Was möchten Sie tun?“; die Registerkarte *Suchen* erscheint während einer Suche (Bereich, Optimieren: Anlagen, gekennzeichnet, wichtig, ungelesen, kategorisiert). Symbole aus den Fluent UI System Icons von Microsoft wie im Office-Menüband.
 * **Datei-Backstage**: Kontoinformationen, Konto hinzufügen, Kontoeinstellungen (synchronisieren, entfernen), Postfachtools („Gelöschte Elemente“ leeren), Optionen, Beenden.
 * **Ordnerbereich** mit Favoriten, Ordnerbaum pro Konto (Ungelesen-Zähler, Entwürfe in [ ]) und Suchordnern (Ungelesene E-Mail, Zur Nachverfolgung gekennzeichnet, E-Mail mit Anlagen, Wichtige E-Mail), minimierbar, unten die Modulleiste *E-Mail · Kalender · Personen · Aufgaben*.
@@ -13,7 +53,7 @@ Ein nativer Desktop-Client für E-Mail, Kalender, Kontakte und Aufgaben – aufg
 * **Eigene Betriebssystem-Fenster** wie in Outlook für: Nachricht lesen, Nachricht verfassen, Termin/Besprechung, Kontakt, Aufgabe, Optionen, Konto hinzufügen und Erinnerungen.
 * Designs **Bunt** und **Schwarz**.
 
-## Module
+### Module
 
 | Modul | Funktionen |
 |---|---|
@@ -39,7 +79,7 @@ Tastenkombinationen wie in Outlook: `Strg+N` neues Element, `Strg+R` / `Strg+Ums
 
 ### Microsoft-Anmeldung einrichten
 
-MailCraft nutzt den OAuth-Gerätecode-Flow (kein Redirect, kein Client-Secret):
+OpenLook nutzt den OAuth-Gerätecode-Flow (kein Redirect, kein Client-Secret):
 
 1. Im [Entra Admin Center](https://entra.microsoft.com) → *App-Registrierungen* → *Neue Registrierung*.
    Kontotyp: „Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten“.
@@ -47,40 +87,36 @@ MailCraft nutzt den OAuth-Gerätecode-Flow (kein Redirect, kein Client-Secret):
 3. Unter *API-Berechtigungen* (Microsoft Graph, delegiert) hinzufügen:
    `User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite Tasks.ReadWrite MailboxSettings.ReadWrite offline_access`,
    für freigegebene Postfächer zusätzlich `Mail.ReadWrite.Shared Mail.Send.Shared Calendars.ReadWrite.Shared Contacts.ReadWrite.Shared`.
-4. Die *Anwendungs-ID (Client-ID)* als Umgebungsvariable setzen und MailCraft starten:
+4. Die *Anwendungs-ID (Client-ID)* als Umgebungsvariable setzen und OpenLook starten:
 
 ```sh
-export MAILCRAFT_GRAPH_CLIENT_ID=<client-id>
+export OPENLOOK_GRAPH_CLIENT_ID=<client-id>
 cargo run --release
 ```
 
 Dann *Datei → Konto hinzufügen → Erweiterte Optionen → Microsoft 365*, den angezeigten Code auf der Microsoft-Seite eingeben – fertig.
 
-## Bauen & starten
+## Bauen
 
-```sh
-cargo run --release
-```
-
-Ergebnis ist eine einzelne ausführbare Datei (`target/release/mailcraft`, unter Windows `mailcraft.exe`).
+Voraussetzung ist ein aktuelles [Rust](https://rustup.rs) (stable). Getestet unter Linux und mit der Windows-Version unter Wine; macOS sollte ebenso bauen, ist aber noch ungetestet.
 
 Windows-Programm von Linux aus bauen (MinGW):
 
 ```sh
 rustup target add x86_64-pc-windows-gnu
 sudo apt install gcc-mingw-w64-x86-64
-cargo build --release --target x86_64-pc-windows-gnu   # → target/x86_64-pc-windows-gnu/release/mailcraft.exe
+cargo build --release --target x86_64-pc-windows-gnu   # → target/x86_64-pc-windows-gnu/release/openlook.exe
 ```
  Unter Windows wird automatisch die Systemschrift Segoe UI verwendet. Unter Linux werden zur Laufzeit die üblichen Desktop-Bibliotheken benötigt (OpenGL, `libxkbcommon-x11` bzw. Wayland).
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
-| `MAILCRAFT_DB` | `<Datenverzeichnis>/MailCraft/mailcraft.db` | Pfad der Datenbank |
-| `MAILCRAFT_GRAPH_CLIENT_ID` | – | Client-ID für die Microsoft-Anmeldung |
-| `MAILCRAFT_GRAPH_TENANT` | `common` | `common`, `organizations`, `consumers` oder Tenant-ID |
-| `MAILCRAFT_SYNC_MINUTES` | `5` | Intervall für automatisches Senden/Empfangen |
-| `MAILCRAFT_CA_FILE` | – | Zusätzliche CA-Zertifikate (PEM) für Mailserver mit eigener Zertifizierungsstelle |
-| `MAILCRAFT_GRAPH_URL` | `https://graph.microsoft.com/v1.0` | Graph-Endpunkt (z. B. für nationale Clouds) |
+| `OPENLOOK_DB` | `<Datenverzeichnis>/OpenLook/openlook.db` | Pfad der Datenbank |
+| `OPENLOOK_GRAPH_CLIENT_ID` | – | Client-ID für die Microsoft-Anmeldung |
+| `OPENLOOK_GRAPH_TENANT` | `common` | `common`, `organizations`, `consumers` oder Tenant-ID |
+| `OPENLOOK_SYNC_MINUTES` | `5` | Intervall für automatisches Senden/Empfangen |
+| `OPENLOOK_CA_FILE` | – | Zusätzliche CA-Zertifikate (PEM) für Mailserver mit eigener Zertifizierungsstelle |
+| `OPENLOOK_GRAPH_URL` | `https://graph.microsoft.com/v1.0` | Graph-Endpunkt (z. B. für nationale Clouds) |
 
 ## Tests
 
@@ -88,10 +124,10 @@ cargo build --release --target x86_64-pc-windows-gnu   # → target/x86_64-pc-wi
 cargo test                       # Unit-Tests + Microsoft-365-Provider gegen einen nachgebauten Graph-Server
 ```
 
-Ende-zu-Ende gegen einen echten IMAP/SMTP-Server (Senden mit Anlage, Abrufen, Flags, Ordner und Unterordner, Papierkorb, Regeln, öffentliche Ordner mit `MAILCRAFT_IT_PUBLIC_FOLDER`, Abwesenheitsnotiz über ManageSieve mit echter automatischer Antwort an ein zweites Konto `MAILCRAFT_IT_USER2/PASSWORD2/ADDRESS2`):
+Ende-zu-Ende gegen einen echten IMAP/SMTP-Server (Senden mit Anlage, Abrufen, Flags, Ordner und Unterordner, Papierkorb, Regeln, öffentliche Ordner mit `OPENLOOK_IT_PUBLIC_FOLDER`, Abwesenheitsnotiz über ManageSieve mit echter automatischer Antwort an ein zweites Konto `OPENLOOK_IT_USER2/PASSWORD2/ADDRESS2`):
 
 ```sh
-MAILCRAFT_IT_HOST=mail.example.org MAILCRAFT_IT_USER=… MAILCRAFT_IT_PASSWORD=… MAILCRAFT_IT_ADDRESS=… \
+OPENLOOK_IT_HOST=mail.example.org OPENLOOK_IT_USER=… OPENLOOK_IT_PASSWORD=… OPENLOOK_IT_ADDRESS=… \
   cargo test -- --ignored imap_end_to_end
 ```
 
@@ -145,6 +181,12 @@ IMAP-Kennwörter und Microsoft-Tokens werden im Schlüsselbund des Betriebssyste
 * Besprechungsantworten gibt es nur für Microsoft-365-Konten. Abwesenheitsnotizen für IMAP brauchen einen Server mit ManageSieve (Port 4190); der Zeitraum gilt dort tagesgenau.
 * Kontaktgruppen werden lokal gespeichert.
 * Frei/Gebucht-Zeiten anderer Personen liefert nur Microsoft 365; bei IMAP-Konten zeigt der Terminplanungs-Assistent nur den eigenen Kalender.
-* Regeln laufen im Client (wie Outlooks „nur auf diesem Computer“-Regeln), also nur, wenn MailCraft geöffnet ist.
+* Regeln laufen im Client (wie Outlooks „nur auf diesem Computer“-Regeln), also nur, wenn OpenLook geöffnet ist.
 * Öffentliche Ordner von Exchange sind über Microsoft Graph nicht zugänglich (Microsoft bietet dafür keine Graph-Schnittstelle); öffentliche IMAP-Ordner werden angezeigt.
 * Notizen und Journal werden lokal gespeichert (Microsoft Graph bietet keine Schnittstelle für Outlook-Notizen und -Journal).
+
+## Lizenz und Hinweise
+
+OpenLook steht unter der [MIT-Lizenz](LICENSE). Die Symbole stammen aus den [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT, © Microsoft, siehe `assets/icons/LICENSE`) und [Phosphor Icons](https://phosphoricons.com) (MIT).
+
+OpenLook ist ein unabhängiges Open-Source-Projekt und steht in keiner Verbindung zu Microsoft. Microsoft, Outlook und Microsoft 365 sind Marken der Microsoft Corporation.
