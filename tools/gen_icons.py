@@ -14,12 +14,16 @@ OUT = os.path.join(ROOT, "assets", "icons")
 
 BLUE, PURPLE, RED, YELLOW, GREEN, GREY = "#0F6CBD", "#8764B8", "#C4314B", "#E8A33D", "#107C10", "#616161"
 
-# Reply arrows drawn for OpenLook (public domain like the rest).
+# Icons drawn for OpenLook (public domain like the rest).
 ARROW = '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="{}"/>'
 CUSTOM = {
     "reply": ARROW.format("M8.5 5.5l-5 5l5 5m-5-5h8a6 6 0 0 1 6 6v1"),
     "reply-all": ARROW.format("M10.5 5.5l-5 5l5 5m-5-5h6a6 6 0 0 1 6 6v1M6.5 5.5l-5 5l5 5"),
     "forward": ARROW.format("M12.5 5.5l5 5l-5 5m5-5h-8a6 6 0 0 0-6 6v1"),
+    # Letters for Bold / Italic / Underline, as Outlook shows them.
+    "bold": ARROW.format("M6.5 4.5h4.5a3 3 0 0 1 0 6h-4.5zm0 6h5.5a3 3 0 0 1 0 6h-5.5z").replace('d=', 'stroke-width="2" d=', 1),
+    "italic": ARROW.format("M9.5 4.5h6m-10 12h6m1-12l-3 12"),
+    "underline": ARROW.format("M6.5 4.5v6a4 4 0 0 0 8 0v-6m-9 13h10"),
 }
 
 # phosphor constant (used throughout the UI code) -> (System UIcons name, colour)
@@ -107,6 +111,9 @@ MAP = [
     ("FILE_IMAGE", "picture", BLUE),
     ("FILE_PDF", "document", RED),
     ("TEXT_AA", "paragraph-left", BLUE),
+    ("TEXT_B", "bold", "#424242"),
+    ("TEXT_ITALIC", "italic", "#424242"),
+    ("TEXT_UNDERLINE", "underline", "#424242"),
     ("LIST_BULLETS", "list", GREY),
     ("LIST_NUMBERS", "list-numbered", GREY),
     ("ARROWS_DOWN_UP", "sort", BLUE),
