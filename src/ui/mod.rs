@@ -16,10 +16,12 @@ mod icons;
 mod mail;
 mod notes;
 mod people;
+mod quicksteps;
 mod reminders;
 mod rules_ui;
 mod tasks;
 mod theme;
+mod todobar;
 
 use std::{
     future::Future,
@@ -123,6 +125,9 @@ pub struct Prefs {
     pub work_end: u32,
     pub zoom: f32,
     pub conversations: bool,
+    pub todo_calendar: bool,
+    pub todo_people: bool,
+    pub todo_tasks: bool,
 }
 
 impl Prefs {
@@ -145,6 +150,9 @@ impl Prefs {
             work_end: num("work_end", 17.0) as u32,
             zoom: num("zoom", 1.0) as f32,
             conversations: flag("conversations", false),
+            todo_calendar: flag("todo_calendar", false),
+            todo_people: flag("todo_people", false),
+            todo_tasks: flag("todo_tasks", false),
         }
     }
 }
@@ -191,6 +199,7 @@ pub enum Win {
     Options(backstage::OptionsWin),
     AddAccount(backstage::AddAccountWin),
     Rules(rules_ui::RulesWin),
+    QuickSteps(quicksteps::QuickStepsWin),
     AutoReply(backstage::AutoReplyWin),
     Note(notes::NoteEditor),
     Journal(notes::JournalEditor),
@@ -242,6 +251,7 @@ pub struct App {
     module: Module,
     ribbon_tab: usize,
     ribbon_collapsed: bool,
+    search_tab_shown: bool,
     folder_pane_min: bool,
     backstage: Option<backstage::Page>,
     tell_me: String,
@@ -253,6 +263,7 @@ pub struct App {
     people: people::PeopleView,
     tasks: tasks::TasksView,
     notes: notes::NotesView,
+    todo: todobar::TodoBar,
     reminders: reminders::Reminders,
     windows: Vec<WinEntry>,
     next_window: u64,
@@ -284,6 +295,7 @@ impl App {
             module: Module::Mail,
             ribbon_tab: 0,
             ribbon_collapsed: false,
+            search_tab_shown: false,
             folder_pane_min: false,
             backstage: None,
             tell_me: String::new(),
@@ -299,6 +311,7 @@ impl App {
             people: Default::default(),
             tasks: Default::default(),
             notes: Default::default(),
+            todo: Default::default(),
             reminders: Default::default(),
             windows: vec![],
             next_window: 1,
@@ -565,10 +578,22 @@ impl App {
                 if self.backstage.is_some() {
                     return;
                 }
-                let tabs: &[&str] = match self.module {
-                    Module::Mail => &["Start", "Senden/Empfangen", "Ordner", "Ansicht", "Hilfe"],
-                    _ => &["Start", "Senden/Empfangen", "Ordner", "Ansicht", "Hilfe"],
-                };
+                // While searching mail, Outlook shows the contextual "Suchen" tab.
+                let searching = self.module == Module::Mail && !self.search.trim().is_empty();
+                let mut tabs = vec!["Start", "Senden/Empfangen", "Ordner", "Ansicht", "Hilfe"];
+                if searching {
+                    tabs.push("Suchen");
+                    if !self.search_tab_shown {
+                        self.ribbon_tab = 5;
+                        self.search_tab_shown = true;
+                    }
+                } else {
+                    self.search_tab_shown = false;
+                    if self.ribbon_tab == 5 {
+                        self.ribbon_tab = 0;
+                    }
+                }
+                let tabs = &tabs[..];
                 let mut tab = self.ribbon_tab;
                 let mut tell = String::new();
                 std::mem::swap(&mut tell, &mut self.tell_me);
@@ -1045,6 +1070,7 @@ impl App {
                 Win::Options(o) => self.options_window(ctx, vid, o),
                 Win::AddAccount(a) => self.add_account_window(ctx, vid, a),
                 Win::Rules(r) => self.rules_window(ctx, vid, r),
+                Win::QuickSteps(q) => self.quicksteps_window(ctx, vid, q),
                 Win::AutoReply(a) => self.auto_reply_window(ctx, vid, a),
                 Win::Note(n) => self.note_window(ctx, vid, n),
                 Win::Journal(j) => self.journal_window(ctx, vid, j),

@@ -21,6 +21,8 @@ pub enum ComposeKind {
     Reply(i64),
     ReplyAll(i64),
     Forward(i64),
+    /// Forward to a fixed recipient (QuickStep "An Vorgesetzte(n)").
+    ForwardTo(i64, String),
     EditDraft(i64),
 }
 
@@ -108,6 +110,7 @@ impl App {
             ComposeKind::Reply(id)
             | ComposeKind::ReplyAll(id)
             | ComposeKind::Forward(id)
+            | ComposeKind::ForwardTo(id, _)
             | ComposeKind::EditDraft(id) => db::get_message(&self.st.db(), *id).ok().flatten(),
             _ => None,
         };
@@ -162,6 +165,13 @@ impl App {
                 c.body = quote(&m);
             }
             (ComposeKind::Forward(_), Some(m)) => {
+                c.subject = prefixed("WG:", &m.summary.subject);
+                c.body = quote(&m);
+                c.attachments =
+                    db::attachments_with_data(&self.st.db(), m.summary.id).unwrap_or_default();
+            }
+            (ComposeKind::ForwardTo(_, to), Some(m)) => {
+                c.to = to;
                 c.subject = prefixed("WG:", &m.summary.subject);
                 c.body = quote(&m);
                 c.attachments =

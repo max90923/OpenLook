@@ -615,6 +615,13 @@ static ICONS: &[Entry] = &[
         "bytes://icons/sign_out_32.svg",
         include_bytes!("../../assets/icons/sign_out_32.svg"),
     ),
+    (
+        ph::LIGHTNING,
+        "bytes://icons/lightning_20.svg",
+        include_bytes!("../../assets/icons/lightning_20.svg"),
+        "bytes://icons/lightning_32.svg",
+        include_bytes!("../../assets/icons/lightning_32.svg"),
+    ),
 ];
 
 /// SVG for a glyph: (uri, bytes); `large` picks the 32 px drawing.

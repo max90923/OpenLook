@@ -86,6 +86,24 @@ pub fn save(c: &Connection, rules: &[Rule]) -> Result<()> {
     db::set_setting(c, "rules", &serde_json::to_value(rules)?)
 }
 
+/// Conversations the user chose to ignore ("Ignorieren").
+pub fn ignored(c: &Connection) -> Vec<String> {
+    db::get_settings(c)
+        .ok()
+        .and_then(|s| s.get("ignored_conversations").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+pub fn ignore(c: &Connection, subject: &str) -> Result<()> {
+    let mut list = ignored(c);
+    let key = crate::conversation::key(subject);
+    if !list.contains(&key) {
+        list.push(key);
+    }
+    db::set_setting(c, "ignored_conversations", &serde_json::to_value(list)?)
+}
+
 pub fn matches(rule: &Rule, m: &Message) -> bool {
     let needle = rule.contains.trim().to_lowercase();
     if !rule.enabled
@@ -106,10 +124,11 @@ pub fn matches(rule: &Rule, m: &Message) -> bool {
 /// Apply the rules to inbox messages of an account. With `only_new`,
 /// messages handled before are skipped. Returns the number of actions.
 pub async fn apply(state: &AppState, account_id: i64, only_new: bool) -> Result<usize> {
-    let (rules, messages) = {
+    let (rules, ignored, messages) = {
         let c = state.db();
         c.execute(SCHEMA, [])?;
         let rules = load(&c);
+        let ignored = ignored(&c);
         let Some(inbox) = db::folder_by_role(&c, account_id, "inbox")? else {
             return Ok(0);
         };
@@ -134,11 +153,16 @@ pub async fn apply(state: &AppState, account_id: i64, only_new: bool) -> Result<
                 }
             }
         }
-        (rules, messages)
+        (rules, ignored, messages)
     };
     let mut done = 0;
     for m in messages {
         let id = m.summary.id;
+        if ignored.contains(&crate::conversation::key(&m.summary.subject)) {
+            providers::delete_message(state, id).await?;
+            done += 1;
+            continue;
+        }
         // Outlook stops at the first matching rule.
         if let Some(rule) = rules.iter().find(|r| matches(r, &m)) {
             match rule.action {
@@ -261,6 +285,19 @@ mod tests {
             },
             &msg("x", "Rechnung")
         ));
+    }
+
+    #[tokio::test]
+    async fn ignored_conversations_go_to_trash() {
+        let state = AppState::in_memory();
+        crate::seed::ensure_local_account(&state.db()).unwrap();
+        let acc = db::list_accounts(&state.db()).unwrap()[0].id;
+        ignore(&state.db(), "AW: Re: Urlaubsplanung").unwrap();
+        assert_eq!(apply(&state, acc, true).await.unwrap(), 1);
+        let trash = db::folder_by_role(&state.db(), acc, "trash")
+            .unwrap()
+            .unwrap();
+        assert_eq!(trash.total, 1);
     }
 
     #[tokio::test]

@@ -102,6 +102,7 @@ MAP = [
     ("MICROSOFT_OUTLOOK_LOGO", "mail_multiple", None),
     ("PLAY", "play_circle", GREEN),
     ("SIGN_OUT", "sign_out", GREY),
+    ("LIGHTNING", "flash", YELLOW),
 ]
 
 def find(base, size):

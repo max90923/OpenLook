@@ -48,6 +48,12 @@ pub struct MailView {
     favorites_closed: bool,
     expanded: HashSet<String>,
     folder_dialog: Option<FolderDialog>,
+    /// "Suchen" tab: Optimieren filters.
+    f_attach: bool,
+    f_flagged: bool,
+    f_important: bool,
+    f_unread: bool,
+    f_categorized: bool,
     closed_accounts: HashSet<i64>,
 }
 
@@ -101,6 +107,10 @@ pub(super) enum Act {
     RenameFolder(i64),
     DeleteFolder(i64),
     CreateRule(i64),
+    Ignore(i64),
+    /// Message, true = whole folder.
+    CleanUp(i64, bool),
+    MeetingReply(i64),
     Toast(String),
 }
 
@@ -144,6 +154,14 @@ impl App {
         if self.mail.sort != Sort::Date && !self.mail.ascending {
             list.reverse();
         }
+        let m = &self.mail;
+        list.retain(|x| {
+            (!m.f_attach || x.has_attachments)
+                && (!m.f_flagged || x.is_flagged)
+                && (!m.f_important || x.importance == "high")
+                && (!m.f_unread || !x.is_read)
+                && (!m.f_categorized || !x.categories.is_empty())
+        });
         self.mail.messages = list;
         self.mail.current = self
             .mail
@@ -370,6 +388,102 @@ impl App {
                     }
                 }
                 Act::CreateRule(id) => self.open_rules(Some(id)),
+                Act::Ignore(id) => {
+                    let Some(m) = db::get_message(&self.st.db(), id).ok().flatten() else {
+                        continue;
+                    };
+                    let key = crate::conversation::key(&m.summary.subject);
+                    let res = crate::rules::ignore(&self.st.db(), &m.summary.subject);
+                    if let Err(e) = res {
+                        self.toast(format!("{e:#}"), true);
+                        continue;
+                    }
+                    let trash = self.folder_for_role(m.summary.account_id, "trash");
+                    let ids: Vec<i64> = db::list_messages(
+                        &self.st.db(),
+                        &db::MessageQuery {
+                            limit: 100_000,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|x| {
+                        x.account_id == m.summary.account_id
+                            && Some(x.folder_id) != trash
+                            && crate::conversation::key(&x.subject) == key
+                    })
+                    .map(|x| x.id)
+                    .collect();
+                    self.mail.selected = None;
+                    self.spawn(Some("Die Unterhaltung wird ignoriert; neue Nachrichten landen in \"Gelöschte Elemente\"."), move |st, _| async move {
+                        for id in ids {
+                            providers::delete_message(&st, id).await?;
+                        }
+                        Ok(())
+                    });
+                }
+                Act::CleanUp(id, whole_folder) => {
+                    let Some(m) = db::get_message(&self.st.db(), id).ok().flatten() else {
+                        continue;
+                    };
+                    let key = crate::conversation::key(&m.summary.subject);
+                    let candidates: Vec<Message> = {
+                        let c = self.st.db();
+                        db::list_messages(
+                            &c,
+                            &db::MessageQuery {
+                                folder_id: whole_folder.then_some(m.summary.folder_id),
+                                limit: 100_000,
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|x| {
+                            x.account_id == m.summary.account_id
+                                && (whole_folder || crate::conversation::key(&x.subject) == key)
+                        })
+                        .filter_map(|x| db::get_message(&c, x.id).ok().flatten())
+                        .collect()
+                    };
+                    let ids = crate::conversation::redundant(&candidates);
+                    if ids.is_empty() {
+                        self.toast("Es wurden keine Nachrichten aufgeräumt.", false);
+                        continue;
+                    }
+                    let msg = format!(
+                        "{} redundante Nachricht(en) nach \"Gelöschte Elemente\" verschoben.",
+                        ids.len()
+                    );
+                    if ids.contains(&id) {
+                        self.mail.selected = None;
+                    }
+                    self.spawn(Some(&msg), move |st, _| async move {
+                        for id in ids {
+                            providers::delete_message(&st, id).await?;
+                        }
+                        Ok(())
+                    });
+                }
+                Act::MeetingReply(id) => {
+                    let found = db::get_message(&self.st.db(), id).ok().flatten();
+                    if let Some(m) = found {
+                        let me = self
+                            .data
+                            .account(m.summary.account_id)
+                            .map(|a| a.email.to_lowercase())
+                            .unwrap_or_default();
+                        let attendees: Vec<String> = providers::split_addresses(&format!(
+                            "{}, {}, {}",
+                            m.summary.from_addr, m.to, m.cc
+                        ))
+                        .into_iter()
+                        .filter(|a| a.to_lowercase() != me)
+                        .collect();
+                        self.new_meeting(&m.summary.subject, &attendees.join("; "), &m.body_text);
+                    }
+                }
                 Act::Toast(t) => self.toast(t, true),
             }
         }
@@ -416,6 +530,10 @@ impl App {
     // ------------------------------------------------------------ ribbon
 
     pub fn mail_ribbon(&mut self, ui: &mut egui::Ui) {
+        if self.ribbon_tab == 5 {
+            self.mail_search_ribbon(ui);
+            return;
+        }
         if self.ribbon_tab == 2 {
             self.mail_folder_ribbon(ui);
         }
@@ -458,19 +576,21 @@ impl App {
             });
         });
         chrome::group(ui, &t, "Löschen", |ui| {
-            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", has).clicked() {
-                acts.push(Act::Delete(sel.as_ref().unwrap().id));
-            }
-            if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archivieren", has).clicked() {
-                let m = sel.as_ref().unwrap();
-                match self.folder_for_role(m.account_id, "archive") {
-                    Some(f) => acts.push(Act::Move(m.id, f)),
-                    None => acts.push(Act::Toast(
-                        "Für dieses Konto ist kein Archivordner vorhanden.".into(),
-                    )),
-                }
-            }
             chrome::column(ui, |ui| {
+                if chrome::small(ui, &t, ph::PROHIBIT, IC_GREY, "Ignorieren", has).clicked() {
+                    acts.push(Act::Ignore(sel.as_ref().unwrap().id));
+                }
+                let r = chrome::small(ui, &t, ph::BROOM, IC_BLUE, "Aufräumen \u{E136}", has);
+                if let Some(m) = &sel {
+                    chrome::menu(&r, |ui| {
+                        if chrome::menu_item(ui, ph::BROOM, IC_BLUE, "Unterhaltung aufräumen") {
+                            acts.push(Act::CleanUp(m.id, false));
+                        }
+                        if chrome::menu_item(ui, ph::BROOM, IC_BLUE, "Ordner aufräumen") {
+                            acts.push(Act::CleanUp(m.id, true));
+                        }
+                    });
+                }
                 let r = chrome::small(ui, &t, ph::PROHIBIT, IC_RED, "Junk-E-Mail \u{E136}", has);
                 chrome::menu(&r, |ui| {
                     if chrome::menu_item(ui, ph::PROHIBIT, IC_RED, "In Junk-E-Mail verschieben") {
@@ -487,6 +607,18 @@ impl App {
                     }
                 });
             });
+            if chrome::large(ui, &t, ph::X, IC_RED, "Löschen", has).clicked() {
+                acts.push(Act::Delete(sel.as_ref().unwrap().id));
+            }
+            if chrome::large(ui, &t, ph::ARCHIVE, IC_GREY, "Archivieren", has).clicked() {
+                let m = sel.as_ref().unwrap();
+                match self.folder_for_role(m.account_id, "archive") {
+                    Some(f) => acts.push(Act::Move(m.id, f)),
+                    None => acts.push(Act::Toast(
+                        "Für dieses Konto ist kein Archivordner vorhanden.".into(),
+                    )),
+                }
+            }
         });
         chrome::group(ui, &t, "Antworten", |ui| {
             for (icon, label, kind) in [
@@ -502,6 +634,20 @@ impl App {
                         _ => ComposeKind::Forward(id),
                     }));
                 }
+            }
+            chrome::column(ui, |ui| {
+                if chrome::small(ui, &t, ph::USERS_THREE, IC_BLUE, "Besprechung", has).clicked() {
+                    acts.push(Act::MeetingReply(sel.as_ref().unwrap().id));
+                }
+            });
+        });
+        // Like Outlook, the gallery collapses into one button when space is short.
+        let narrow = ui.ctx().content_rect().width() < 1650.0;
+        chrome::group(ui, &t, "QuickSteps", |ui| {
+            if narrow {
+                self.quicksteps_button(ui, sel.as_ref().map(|m| m.id));
+            } else {
+                self.quicksteps_gallery(ui, sel.as_ref().map(|m| m.id));
             }
         });
         chrome::group(ui, &t, "Verschieben", |ui| {
@@ -713,8 +859,111 @@ impl App {
         self.mail_apply(acts);
     }
 
+    /// Contextual "Suchen" tab (Bereich, Optimieren, Schließen).
+    fn mail_search_ribbon(&mut self, ui: &mut egui::Ui) {
+        let t = self.t;
+        chrome::group(ui, &t, "Bereich", |ui| {
+            for (all, icon, label) in [
+                (true, ph::TRAY, "Alle\nPostfächer"),
+                (false, ph::FOLDER_OPEN, "Aktueller\nOrdner"),
+            ] {
+                let r = chrome::large(ui, &t, icon, IC_BLUE, label, true);
+                if self.mail.search_all == all {
+                    ui.painter().rect_stroke(
+                        r.rect,
+                        0,
+                        egui::Stroke::new(1.0_f32, t.button_down),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                if r.clicked() {
+                    self.mail.search_all = all;
+                    self.dirty = true;
+                }
+            }
+        });
+        chrome::group(ui, &t, "Optimieren", |ui| {
+            let mut changed = false;
+            let mut toggle = |ui: &mut egui::Ui, icon: &str, label: &str, on: &mut bool| {
+                let text = if *on {
+                    format!("{label}  \u{E182}")
+                } else {
+                    label.to_string()
+                };
+                if chrome::small(ui, &t, icon, IC_BLUE, &text, true).clicked() {
+                    *on = !*on;
+                    changed = true;
+                }
+            };
+            chrome::column(ui, |ui| {
+                toggle(ui, ph::PAPERCLIP, "Hat Anlagen", &mut self.mail.f_attach);
+                toggle(ui, ph::FLAG, "Gekennzeichnet", &mut self.mail.f_flagged);
+                toggle(ui, ph::WARNING, "Wichtig", &mut self.mail.f_important);
+            });
+            chrome::column(ui, |ui| {
+                toggle(
+                    ui,
+                    ph::ENVELOPE_SIMPLE,
+                    "Ungelesen",
+                    &mut self.mail.f_unread,
+                );
+                toggle(ui, ph::TAG, "Kategorisiert", &mut self.mail.f_categorized);
+            });
+            if changed {
+                self.dirty = true;
+            }
+        });
+        chrome::group(ui, &t, "Schließen", |ui| {
+            if chrome::large(ui, &t, ph::X, IC_RED, "Suche\nschließen", true).clicked() {
+                self.search.clear();
+                let m = &mut self.mail;
+                (
+                    m.f_attach,
+                    m.f_flagged,
+                    m.f_important,
+                    m.f_unread,
+                    m.f_categorized,
+                ) = (false, false, false, false, false);
+                self.dirty = true;
+            }
+        });
+    }
+
     fn mail_view_ribbon(&mut self, ui: &mut egui::Ui) {
         let t = self.t;
+        chrome::group(ui, &t, "To-Do-Leiste", |ui| {
+            let r = chrome::large(ui, &t, ph::LAYOUT, IC_BLUE, "To-Do-Leiste\n\u{E136}", true);
+            chrome::menu(&r, |ui| {
+                let mut changed = false;
+                changed |= ui
+                    .checkbox(&mut self.prefs.todo_calendar, "Kalender")
+                    .changed();
+                changed |= ui
+                    .checkbox(&mut self.prefs.todo_people, "Personen")
+                    .changed();
+                changed |= ui
+                    .checkbox(&mut self.prefs.todo_tasks, "Aufgaben")
+                    .changed();
+                if ui.button("Aus").clicked() {
+                    (
+                        self.prefs.todo_calendar,
+                        self.prefs.todo_people,
+                        self.prefs.todo_tasks,
+                    ) = (false, false, false);
+                    changed = true;
+                    ui.close();
+                }
+                if changed {
+                    for (k, v) in [
+                        ("todo_calendar", self.prefs.todo_calendar),
+                        ("todo_people", self.prefs.todo_people),
+                        ("todo_tasks", self.prefs.todo_tasks),
+                    ] {
+                        self.save_setting(k, serde_json::json!(v));
+                    }
+                }
+            });
+        });
         chrome::group(ui, &t, "Nachrichten", |ui| {
             let label = if self.prefs.conversations {
                 "Als Unterhaltungen\nanzeigen \u{E182}"
@@ -1001,6 +1250,19 @@ impl App {
         let list_frame = egui::Frame::new()
             .fill(t.pane)
             .stroke(egui::Stroke::new(1.0_f32, t.border));
+        if self.todo_bar_visible() {
+            egui::SidePanel::right("todo_bar")
+                .resizable(true)
+                .default_width(270.0)
+                .width_range(220.0..=420.0)
+                .frame(
+                    egui::Frame::new()
+                        .fill(t.pane_alt)
+                        .stroke(egui::Stroke::new(1.0_f32, t.border))
+                        .inner_margin(egui::Margin::symmetric(10, 4)),
+                )
+                .show_inside(ui, |ui| self.todo_bar(ui));
+        }
         match self.prefs.reading_pane {
             ReadingPane::Right => {
                 egui::SidePanel::left("message_list")

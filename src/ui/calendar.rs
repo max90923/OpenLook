@@ -71,6 +71,12 @@ impl CalendarView {
         }
     }
 
+    pub fn go_to(&mut self, day: NaiveDate) {
+        self.date = day;
+        self.nav_month = day;
+        self.scrolled = false;
+    }
+
     pub fn count(&self) -> usize {
         self.events
             .iter()
@@ -137,6 +143,20 @@ impl App {
         .and_hms_opt(h, 0, 0)
         .unwrap();
         self.new_event_at(start, false, false);
+    }
+
+    /// "Besprechung" from a message: attendees and text taken over.
+    pub fn new_meeting(&mut self, title: &str, attendees: &str, body: &str) {
+        let h = (chrono::Local::now().hour() + 1).min(23);
+        self.new_event_at(super::today().and_hms_opt(h, 0, 0).unwrap(), false, true);
+        if let Some(super::WinEntry {
+            win: Win::Event(e), ..
+        }) = self.windows.last_mut()
+        {
+            e.ev.title = title.to_string();
+            e.ev.attendees = attendees.to_string();
+            e.ev.body = body.to_string();
+        }
     }
 
     fn new_event_at(&mut self, start: chrono::NaiveDateTime, all_day: bool, meeting: bool) {
